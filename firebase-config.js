@@ -1,11 +1,11 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+// firebase-config.js
+// ใช้ Firebase ผ่าน CDN (modular SDK) ไม่ต้องมี build tool
+// ทุกไฟล์ที่ต้องใช้ Firebase ให้ import จากไฟล์นี้แทนการ import จาก "firebase/..." ตรงๆ
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import { getAuth } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+import { getFirestore } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
 const firebaseConfig = {
   apiKey: "AIzaSyDiNN9_E3YKF46b7RywW7lyczB3JP6mw_U",
   authDomain: "lean-56e67.firebaseapp.com",
@@ -18,4 +18,8 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+
+// Export สิ่งที่ไฟล์อื่นต้องใช้
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export default app;

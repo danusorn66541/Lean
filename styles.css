@@ -961,3 +961,56 @@ select:focus-visible {
         padding: 20px;
     }
 }
+/* ==================== LOGIN SCREEN (เพิ่มใหม่: QR Login) ==================== */
+.login-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.login-box {
+    width: 100%;
+    max-width: 420px;
+    background: #ffffff;
+    border-radius: 18px;
+    padding: 32px 24px;
+    text-align: center;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+}
+
+.login-logo {
+    width: 72px;
+    height: 72px;
+    object-fit: contain;
+    margin-bottom: 10px;
+}
+
+.login-manual {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid #eee;
+}
+
+.login-manual p {
+    font-size: 13px;
+    color: #888;
+    margin-bottom: 8px;
+}
+
+.login-manual input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+.header-user {
+    font-size: 13px;
+    color: #555;
+    margin-right: 12px;
+    white-space: nowrap;
+}

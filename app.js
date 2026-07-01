@@ -1,7 +1,16 @@
 // Lean QR Code Medical Supply Tracking System
 // Complete application implementation
+// ปรับเป็น ES Module เพื่อเชื่อมกับ Firebase (firebase-config.js, auth.js)
+
+import { restoreSession, loginWithQR, logout, getCurrentUser, createEmployeeWithQR } from "./auth.js";
+import {
+  listenPatients, addPatientDoc, deletePatientDoc,
+  listenInventory, addMedicineDoc, deleteMedicineDoc,
+  listenRecords, submitRecordDoc
+} from "./data.js";
 
 let currentPage = 'dashboard';
+let currentUser = null; // ผู้ใช้ที่ login อยู่ปัจจุบัน
 let appData = {
     patients: [],
     inventory: [],
@@ -17,12 +26,10 @@ function toggleSidebar() {
 }
 
 function updateNavigation() {
-    // Remove active from all nav items
     document.querySelectorAll('.nav-item').forEach(item => {
         item.classList.remove('active');
     });
-    
-    // Add active to current page
+
     const pageMap = {
         'dashboard': 'navDashboard',
         'scan': 'navScan',
@@ -31,7 +38,7 @@ function updateNavigation() {
         'inventory': 'navInventory',
         'records': 'navRecords'
     };
-    
+
     const navId = pageMap[currentPage];
     if (navId) {
         const navItem = document.getElementById(navId);
@@ -49,38 +56,244 @@ function updateHeaderTime() {
     }
 }
 
-// ==================== DATA PERSISTENCE ====================
-function loadData() {
-    const saved = localStorage.getItem('leanAppData');
-    if (saved) {
-        appData = JSON.parse(saved);
-    } else {
-        // Initialize with sample data
-        appData = {
-            patients: [
-                { id: 1, hn: 'HN001', name: 'สมชาย คำดี', ward: 'A', bed: '101' },
-                { id: 2, hn: 'HN002', name: 'สมหญิง ใจดี', ward: 'B', bed: '205' }
-            ],
-            inventory: [
-                { id: 1, code: 'MED001', name: 'Paracetamol 500mg', stock: 100, unit: 'เม็ด', reorder: 50 },
-                { id: 2, code: 'MED002', name: 'Amoxicillin 500mg', stock: 80, unit: 'เม็ด', reorder: 40 },
-                { id: 3, code: 'MED003', name: 'Normal Saline 1L', stock: 30, unit: 'ขวด', reorder: 15 }
-            ],
-            records: [
-                { id: 1, date: new Date().toLocaleString('th-TH'), patientName: 'สมชาย คำดี', medicineName: 'Paracetamol 500mg', quantity: 2 }
-            ]
-        };
-        saveData();
+// แปลง Firestore Timestamp -> ข้อความวันที่ไทย (กันกรณี serverTimestamp() ยังไม่ resolve ตอน optimistic update)
+function formatTimestamp(ts) {
+    if (!ts) return 'กำลังบันทึก...';
+    const date = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
+    return date.toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+// ==================== DATA SYNC (Firestore real-time) ====================
+// แทนที่ localStorage ทั้งหมด ใช้ onSnapshot ฟังการเปลี่ยนแปลงสด ๆ
+// เก็บ unsubscribe ไว้เพื่อเลิกฟังตอน logout
+let unsubscribePatients = null;
+let unsubscribeInventory = null;
+let unsubscribeRecords = null;
+
+function startDataListeners() {
+    unsubscribePatients = listenPatients((list) => {
+        appData.patients = list;
+        if (currentPage === 'patients' || currentPage === 'scan' || currentPage === 'dashboard') renderApp();
+    });
+    unsubscribeInventory = listenInventory((list) => {
+        appData.inventory = list;
+        if (currentPage === 'medicines' || currentPage === 'inventory' || currentPage === 'scan' || currentPage === 'dashboard') renderApp();
+    });
+    unsubscribeRecords = listenRecords((list) => {
+        appData.records = list;
+        if (currentPage === 'records' || currentPage === 'dashboard') renderApp();
+    });
+}
+
+function stopDataListeners() {
+    if (unsubscribePatients) unsubscribePatients();
+    if (unsubscribeInventory) unsubscribeInventory();
+    if (unsubscribeRecords) unsubscribeRecords();
+    unsubscribePatients = unsubscribeInventory = unsubscribeRecords = null;
+    appData = { patients: [], inventory: [], records: [] };
+}
+
+// ==================== LOGIN PAGE (QR) ====================
+let loginVideoStream = null;
+
+function renderLogin() {
+    const root = document.getElementById('appRoot');
+    root.innerHTML = `
+        <div class="login-screen">
+            <div class="login-box">
+                <img src="https://upload.wikimedia.org/wikipedia/th/thumb/d/d7/MED_Phayao.png/250px-MED_Phayao.png" alt="Logo" class="login-logo">
+                <h1>Lean</h1>
+                <p class="page-subtitle">สแกน QR บัตรพนักงานเพื่อเข้าใช้งาน</p>
+
+                <div id="login-scan-area" class="qr-scan-area">
+                    <video id="login-scan-video" autoplay playsinline></video>
+                </div>
+
+                <div style="text-align:center; margin-top: 15px;">
+                    <button id="loginStartBtn" class="btn-primary" onclick="window.startLoginScan()">
+                        <i class="fa-solid fa-camera"></i> เริ่มสแกน QR
+                    </button>
+                    <button id="loginStopBtn" class="btn-secondary" onclick="window.stopLoginScan()" style="display:none;">
+                        <i class="fa-solid fa-stop"></i> หยุด
+                    </button>
+                </div>
+
+                <div class="login-manual">
+                    <p>หรือป้อนรหัส QR ด้วยมือ</p>
+                    <input type="text" id="loginManualToken" placeholder="วางค่า QR token ที่นี่">
+                    <button class="btn-secondary" onclick="window.submitManualLogin()">เข้าสู่ระบบ</button>
+                </div>
+
+                <div id="loginError" class="info-box error" style="display:none; margin-top:15px;"></div>
+            </div>
+        </div>
+    `;
+}
+
+function startLoginScan() {
+    const video = document.getElementById('login-scan-video');
+    const startBtn = document.getElementById('loginStartBtn');
+    const stopBtn = document.getElementById('loginStopBtn');
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
+            loginVideoStream = stream;
+            video.srcObject = stream;
+            if (startBtn) startBtn.style.display = 'none';
+            if (stopBtn) stopBtn.style.display = 'inline-block';
+            scanLoginQRCode(video);
+        })
+        .catch(err => {
+            showLoginError('ไม่สามารถเข้าถึงกล้องได้: ' + err.message);
+        });
+}
+
+function stopLoginScan() {
+    const startBtn = document.getElementById('loginStartBtn');
+    const stopBtn = document.getElementById('loginStopBtn');
+    if (loginVideoStream) {
+        loginVideoStream.getTracks().forEach(track => track.stop());
+        loginVideoStream = null;
+    }
+    if (startBtn) startBtn.style.display = 'inline-block';
+    if (stopBtn) stopBtn.style.display = 'none';
+}
+
+function scanLoginQRCode(video) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    function scan() {
+        if (!loginVideoStream) return;
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, canvas.width, canvas.height);
+
+        if (code) {
+            const token = code.data.trim();
+            console.log("QR scanned value:", JSON.stringify(token));
+            stopLoginScan();
+            attemptLogin(token);
+        } else {
+            requestAnimationFrame(scan);
+        }
+    }
+
+    scan();
+}
+
+function submitManualLogin() {
+    const token = document.getElementById('loginManualToken').value.trim();
+    if (!token) {
+        showLoginError('กรุณาป้อนค่า token');
+        return;
+    }
+    attemptLogin(token);
+}
+
+async function attemptLogin(token) {
+    try {
+        currentUser = await loginWithQR(token);
+        await initAppAfterLogin();
+    } catch (err) {
+        showLoginError(err.message || 'เข้าสู่ระบบไม่สำเร็จ');
     }
 }
 
-function saveData() {
-    localStorage.setItem('leanAppData', JSON.stringify(appData));
+function showLoginError(message) {
+    const box = document.getElementById('loginError');
+    if (box) {
+        box.textContent = message;
+        box.style.display = 'block';
+    }
+}
+
+async function handleLogout() {
+    if (!confirm('ต้องการออกจากระบบใช่หรือไม่?')) return;
+    stopDataListeners();
+    await logout();
+    currentUser = null;
+    renderLogin();
+}
+
+// ==================== APP SHELL (หลัง login แล้ว) ====================
+function renderAppShell() {
+    const root = document.getElementById('appRoot');
+    root.innerHTML = `
+        <header class="app-header">
+            <div class="header-content">
+                <div class="header-left">
+                    <button class="sidebar-toggle" onclick="window.toggleSidebar()"><i class="fa-solid fa-bars"></i></button>
+                    <div class="header-logo">
+                        <img src="https://upload.wikimedia.org/wikipedia/th/thumb/d/d7/MED_Phayao.png/250px-MED_Phayao.png" alt="Logo">
+                        <div class="header-title">
+                            <h1>Lean</h1>
+                            <p>บันทึกเวชภัณฑ์รายผู้ป่วย</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <span class="header-user"><i class="fa-solid fa-user"></i> ${currentUser.name} (${currentUser.role})</span>
+                    <span class="header-time" id="headerTime"></span>
+                    <button class="btn-secondary" onclick="window.handleLogout()"><i class="fa-solid fa-right-from-bracket"></i> ออกจากระบบ</button>
+                </div>
+            </div>
+        </header>
+
+        <div class="app-body">
+            <aside class="app-sidebar" id="appSidebar">
+                <nav class="sidebar-nav">
+                    <button class="sidebar-close" onclick="window.toggleSidebar()"><i class="fa-solid fa-xmark"></i></button>
+                    <div class="nav-section">
+                        <a href="#" onclick="window.goToPage('dashboard')" class="nav-item active" id="navDashboard">
+                            <span class="nav-icon"><i class="fa-solid fa-house"></i></span>
+                            <span class="nav-label">แดชบอร์ด</span>
+                        </a>
+                        <a href="#" onclick="window.goToPage('scan')" class="nav-item" id="navScan">
+                            <span class="nav-icon"><i class="fa-solid fa-qrcode"></i></span>
+                            <span class="nav-label">สแกน QR</span>
+                        </a>
+                        <a href="#" onclick="window.goToPage('patients')" class="nav-item" id="navPatients">
+                            <span class="nav-icon"><i class="fa-solid fa-user-injured"></i></span>
+                            <span class="nav-label">จัดการผู้ป่วย</span>
+                        </a>
+                        <a href="#" onclick="window.goToPage('medicines')" class="nav-item" id="navMedicines">
+                            <span class="nav-icon"><i class="fa-solid fa-pills"></i></span>
+                            <span class="nav-label">จัดการเวชภัณฑ์</span>
+                        </a>
+                        <a href="#" onclick="window.goToPage('inventory')" class="nav-item" id="navInventory">
+                            <span class="nav-icon"><i class="fa-solid fa-boxes-stacked"></i></span>
+                            <span class="nav-label">ยอดคงคลัง</span>
+                        </a>
+                        <a href="#" onclick="window.goToPage('records')" class="nav-item" id="navRecords">
+                            <span class="nav-icon"><i class="fa-solid fa-clipboard-list"></i></span>
+                            <span class="nav-label">บันทึกการใช้</span>
+                        </a>
+                        ${currentUser.role === 'admin' ? `
+                        <a href="#" onclick="window.goToPage('admin')" class="nav-item" id="navAdmin">
+                            <span class="nav-icon"><i class="fa-solid fa-user-shield"></i></span>
+                            <span class="nav-label">จัดการพนักงาน</span>
+                        </a>` : ''}
+                    </div>
+                </nav>
+            </aside>
+
+            <main class="app-main" id="app"></main>
+        </div>
+    `;
+
+    updateHeaderTime();
+    setInterval(updateHeaderTime, 60000);
 }
 
 // ==================== MAIN RENDER FUNCTION ====================
 function renderApp() {
     const app = document.getElementById('app');
+    if (!app) return;
     app.innerHTML = '';
 
     if (currentPage === 'dashboard') {
@@ -95,17 +308,94 @@ function renderApp() {
         renderInventory(app);
     } else if (currentPage === 'records') {
         renderRecords(app);
+    } else if (currentPage === 'admin') {
+        renderAdminPage(app);
     }
 
     updateNavigation();
     attachEventListeners();
-    
-    // Close sidebar on mobile when navigating
+
     if (window.innerWidth <= 768) {
         const sidebar = document.getElementById('appSidebar');
         if (sidebar) {
             sidebar.classList.remove('active');
         }
+    }
+}
+
+// ==================== ADMIN PAGE: สร้างพนักงาน + QR ====================
+function renderAdminPage(container) {
+    container.innerHTML = `
+        <div class="page-container">
+            <div class="page-header">
+                <h1><i class="fa-solid fa-user-shield"></i> จัดการพนักงาน (สร้าง QR)</h1>
+            </div>
+            <div class="page-content">
+                <form class="form-section" id="addEmployeeForm">
+                    <h2>เพิ่มพนักงานใหม่</h2>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>รหัสพนักงาน</label>
+                            <input type="text" id="empId" placeholder="เช่น EMP001" required>
+                        </div>
+                        <div class="form-group">
+                            <label>ชื่อ-นามสกุล</label>
+                            <input type="text" id="empName" placeholder="ชื่อ-นามสกุล" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>ตำแหน่ง</label>
+                            <select id="empRole" required>
+                                <option value="nurse">พยาบาล (nurse)</option>
+                                <option value="pharmacist">เภสัชกร (pharmacist)</option>
+                                <option value="admin">ผู้ดูแลระบบ (admin)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>แผนก/วอร์ด</label>
+                            <input type="text" id="empDept" placeholder="เช่น วอร์ด 4A">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary"><i class="fa-solid fa-plus"></i> สร้างพนักงาน + QR</button>
+                </form>
+
+                <div id="generatedQRBox" class="qr-container" style="display:none; margin-top:25px;">
+                    <h2>QR Code พนักงาน (พิมพ์/บันทึกไว้ให้พนักงาน)</h2>
+                    <div id="employee-qr-code"></div>
+                    <p class="qr-hint" id="employeeQRHint"></p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function handleAddEmployee(e) {
+    e.preventDefault();
+    const employeeId = document.getElementById('empId').value.trim();
+    const name = document.getElementById('empName').value.trim();
+    const role = document.getElementById('empRole').value;
+    const department = document.getElementById('empDept').value.trim();
+
+    try {
+        const qrToken = await createEmployeeWithQR({ employeeId, name, role, department });
+
+        const box = document.getElementById('generatedQRBox');
+        const qrEl = document.getElementById('employee-qr-code');
+        qrEl.innerHTML = '';
+        new QRCode(qrEl, {
+            text: qrToken,
+            width: 220,
+            height: 220,
+            colorDark: '#5e3db5',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.H
+        });
+        document.getElementById('employeeQRHint').textContent = `พนักงาน: ${name} (${employeeId}) — ปริ้น QR นี้ให้พนักงานเก็บไว้ใช้ login`;
+        box.style.display = 'block';
+        document.getElementById('addEmployeeForm').reset();
+    } catch (err) {
+        alert(err.message || 'สร้างพนักงานไม่สำเร็จ');
     }
 }
 
@@ -122,13 +412,7 @@ function renderDashboard(container) {
 
             <div class="page-content">
                 <div class="dashboard-grid">
-                    <div class="qr-container">
-                        <h2><i class="fa-solid fa-qrcode"></i> สแกน QR Code เพื่อเข้าใช้งาน</h2>
-                        <div id="qr-code"></div>
-                        <p class="qr-hint">ใช้กล้องโทรศัพท์มือถือสแกน QR นี้เพื่อเปิดระบบบนมือถือ</p>
-                    </div>
-
-                    <div class="dashboard-right">
+                    <div class="dashboard-right" style="grid-column: 1 / -1;">
                         <div class="stats-container">
                             <div class="stat-card">
                                 <div class="stat-icon"><i class="fa-solid fa-user-injured"></i></div>
@@ -148,23 +432,23 @@ function renderDashboard(container) {
                         </div>
 
                         <div class="quick-actions">
-                            <button class="quick-action-card" onclick="goToPage('scan')">
+                            <button class="quick-action-card" onclick="window.goToPage('scan')">
                                 <i class="fa-solid fa-qrcode"></i>
                                 <span>สแกนเวชภัณฑ์</span>
                             </button>
-                            <button class="quick-action-card" onclick="goToPage('patients')">
+                            <button class="quick-action-card" onclick="window.goToPage('patients')">
                                 <i class="fa-solid fa-user-injured"></i>
                                 <span>จัดการผู้ป่วย</span>
                             </button>
-                            <button class="quick-action-card" onclick="goToPage('medicines')">
+                            <button class="quick-action-card" onclick="window.goToPage('medicines')">
                                 <i class="fa-solid fa-pills"></i>
                                 <span>จัดการเวชภัณฑ์</span>
                             </button>
-                            <button class="quick-action-card" onclick="goToPage('inventory')">
+                            <button class="quick-action-card" onclick="window.goToPage('inventory')">
                                 <i class="fa-solid fa-boxes-stacked"></i>
                                 <span>ยอดคงคลัง</span>
                             </button>
-                            <button class="quick-action-card" onclick="goToPage('records')">
+                            <button class="quick-action-card" onclick="window.goToPage('records')">
                                 <i class="fa-solid fa-clipboard-list"></i>
                                 <span>บันทึกการใช้</span>
                             </button>
@@ -174,28 +458,6 @@ function renderDashboard(container) {
             </div>
         </div>
     `;
-
-    // Generate QR code
-    setTimeout(() => {
-        const qrElement = document.getElementById('qr-code');
-        if (qrElement) {
-            qrElement.innerHTML = '';
-            // Generate QR code with full URL including protocol
-            const protocol = window.location.protocol;
-            const host = window.location.host;
-            const pathname = window.location.pathname;
-            const fullUrl = protocol + '//' + host + pathname;
-            
-            new QRCode(qrElement, {
-                text: fullUrl,
-                width: 220,
-                height: 220,
-                colorDark: '#5e3db5',
-                colorLight: '#ffffff',
-                correctLevel: QRCode.CorrectLevel.H
-            });
-        }
-    }, 100);
 }
 
 // ==================== PATIENTS PAGE ====================
@@ -242,7 +504,6 @@ function renderPatients(container) {
         </div>
     `;
 
-    // Render patient list
     const patientList = container.querySelector('#patientList');
     if (appData.patients.length > 0) {
         patientList.innerHTML = appData.patients.map(patient => `
@@ -251,7 +512,7 @@ function renderPatients(container) {
                     <div class="item-title">${patient.name}</div>
                     <div class="item-detail">เลขที่บัตร: ${patient.hn} | หอ ${patient.ward} | เตียง ${patient.bed}</div>
                 </div>
-                <button class="btn-delete" onclick="deletePatient(${patient.id})"><i class="fa-solid fa-trash"></i> ลบ</button>
+                <button class="btn-delete" onclick="window.deletePatient('${patient.id}')"><i class="fa-solid fa-trash"></i> ลบ</button>
             </div>
         `).join('');
     }
@@ -313,7 +574,6 @@ function renderMedicines(container) {
         </div>
     `;
 
-    // Render medicine list
     const medicineList = container.querySelector('#medicineList');
     if (appData.inventory.length > 0) {
         medicineList.innerHTML = appData.inventory.map(medicine => `
@@ -323,7 +583,7 @@ function renderMedicines(container) {
                     <div class="item-detail">รหัส: ${medicine.code} | คงเหลือ: ${medicine.stock} ${medicine.unit}</div>
                     ${medicine.stock <= medicine.reorder ? '<div style="color: #ef4444; margin-top: 5px; font-weight: 700;"><i class="fa-solid fa-triangle-exclamation"></i> ต่ำกว่าเตือนใหม่</div>' : ''}
                 </div>
-                <button class="btn-delete" onclick="deleteMedicine(${medicine.id})"><i class="fa-solid fa-trash"></i> ลบ</button>
+                <button class="btn-delete" onclick="window.deleteMedicine('${medicine.id}')"><i class="fa-solid fa-trash"></i> ลบ</button>
             </div>
         `).join('');
     }
@@ -335,23 +595,23 @@ function renderScanPage(container) {
         <div class="page-container">
             <div class="page-header">
                 <h1><i class="fa-solid fa-qrcode"></i> สแกนเวชภัณฑ์</h1>
-                <button class="btn-back" onclick="goToPage('dashboard')"><i class="fa-solid fa-arrow-left"></i> กลับ</button>
+                <button class="btn-back" onclick="window.goToPage('dashboard')"><i class="fa-solid fa-arrow-left"></i> กลับ</button>
             </div>
 
             <div class="page-content">
                 <div class="scan-mode-toggle">
-                    <button class="mode-btn active" onclick="switchScanMode('camera')"><i class="fa-solid fa-camera"></i> กล้อง</button>
-                    <button class="mode-btn" onclick="switchScanMode('manual')"><i class="fa-solid fa-keyboard"></i> พิมพ์ด้วยมือ</button>
+                    <button class="mode-btn active" onclick="window.switchScanMode('camera')"><i class="fa-solid fa-camera"></i> กล้อง</button>
+                    <button class="mode-btn" onclick="window.switchScanMode('manual')"><i class="fa-solid fa-keyboard"></i> พิมพ์ด้วยมือ</button>
                 </div>
 
                 <div id="cameraMode" class="scan-mode active">
                     <div id="qr-scan-area" class="qr-scan-area">
-                        <video id="scan-video"></video>
+                        <video id="scan-video" autoplay playsinline></video>
                     </div>
                     <p class="page-subtitle" style="text-align:center;">วาง QR Code ให้อยู่ในกรอบกล้องเพื่อสแกน</p>
                     <div style="text-align:center;">
-                        <button id="startScanBtn" class="btn-primary" onclick="startScanning()"><i class="fa-solid fa-play"></i> เริ่มสแกน</button>
-                        <button id="stopScanBtn" class="btn-secondary" onclick="stopScanning()" style="display:none;"><i class="fa-solid fa-stop"></i> หยุดสแกน</button>
+                        <button id="startScanBtn" class="btn-primary" onclick="window.startScanning()"><i class="fa-solid fa-play"></i> เริ่มสแกน</button>
+                        <button id="stopScanBtn" class="btn-secondary" onclick="window.stopScanning()" style="display:none;"><i class="fa-solid fa-stop"></i> หยุดสแกน</button>
                     </div>
                 </div>
 
@@ -360,7 +620,7 @@ function renderScanPage(container) {
                         <label>ป้อนรหัสเวชภัณฑ์</label>
                         <input type="text" id="medicineCodeInput" placeholder="เช่น MED001">
                     </div>
-                    <button class="btn-primary" onclick="searchByCode()"><i class="fa-solid fa-magnifying-glass"></i> ค้นหา</button>
+                    <button class="btn-primary" onclick="window.searchByCode()"><i class="fa-solid fa-magnifying-glass"></i> ค้นหา</button>
                 </div>
 
                 <div id="recordForm" class="form-section" style="display:none; margin-top: 25px;">
@@ -380,8 +640,8 @@ function renderScanPage(container) {
                         <label>จำนวนที่ใช้</label>
                         <input type="number" id="recordQuantity" min="1" value="1" required>
                     </div>
-                    <button class="btn-primary" onclick="submitRecord()"><i class="fa-solid fa-check"></i> บันทึก</button>
-                    <button class="btn-secondary" onclick="cancelRecord()"><i class="fa-solid fa-xmark"></i> ยกเลิก</button>
+                    <button class="btn-primary" onclick="window.submitRecord()"><i class="fa-solid fa-check"></i> บันทึก</button>
+                    <button class="btn-secondary" onclick="window.cancelRecord()"><i class="fa-solid fa-xmark"></i> ยกเลิก</button>
                 </div>
 
                 <div id="scanResult" class="info-box" style="display:none; margin-top: 20px;"></div>
@@ -446,7 +706,7 @@ function renderRecords(container) {
     if (appData.records.length > 0) {
         recordsList.innerHTML = appData.records.map(record => `
             <div class="record-card">
-                <div class="record-date">${record.date}</div>
+                <div class="record-date">${formatTimestamp(record.createdAt)}</div>
                 <div class="record-row">
                     <span class="label">ผู้ป่วย:</span>
                     <span>${record.patientName}</span>
@@ -459,13 +719,17 @@ function renderRecords(container) {
                     <span class="label">จำนวน:</span>
                     <span style="font-weight: 700;">${record.quantity}</span>
                 </div>
+                <div class="record-row">
+                    <span class="label">บันทึกโดย:</span>
+                    <span>${record.performedByName || '-'}</span>
+                </div>
             </div>
         `).join('');
     }
 }
 
 // ==================== PATIENT CRUD ====================
-function addPatient(e) {
+async function addPatient(e) {
     e.preventDefault();
     const hn = document.getElementById('patientHN').value;
     const name = document.getElementById('patientName').value;
@@ -473,23 +737,27 @@ function addPatient(e) {
     const bed = document.getElementById('patientBed').value;
 
     if (hn && name && ward && bed) {
-        const newId = Math.max(...appData.patients.map(p => p.id), 0) + 1;
-        appData.patients.push({ id: newId, hn, name, ward, bed });
-        saveData();
-        goToPage('patients');
+        try {
+            await addPatientDoc({ hn, name, ward, bed });
+            goToPage('patients');
+        } catch (err) {
+            alert('เพิ่มผู้ป่วยไม่สำเร็จ: ' + err.message);
+        }
     }
 }
 
-function deletePatient(id) {
+async function deletePatient(id) {
     if (confirm('ต้องการลบผู้ป่วยนี้ใช่หรือไม่?')) {
-        appData.patients = appData.patients.filter(p => p.id !== id);
-        saveData();
-        renderApp();
+        try {
+            await deletePatientDoc(id);
+        } catch (err) {
+            alert('ลบไม่สำเร็จ: ' + err.message);
+        }
     }
 }
 
 // ==================== MEDICINE CRUD ====================
-function addMedicine(e) {
+async function addMedicine(e) {
     e.preventDefault();
     const code = document.getElementById('medicineCode').value;
     const name = document.getElementById('medicineName').value;
@@ -498,22 +766,26 @@ function addMedicine(e) {
     const reorder = parseInt(document.getElementById('medicineReorder').value);
 
     if (code && name && unit && !isNaN(stock) && !isNaN(reorder)) {
-        const newId = Math.max(...appData.inventory.map(i => i.id), 0) + 1;
-        appData.inventory.push({ id: newId, code, name, stock, unit, reorder });
-        saveData();
-        goToPage('medicines');
+        try {
+            await addMedicineDoc({ code, name, stock, unit, reorder });
+            goToPage('medicines');
+        } catch (err) {
+            alert('เพิ่มเวชภัณฑ์ไม่สำเร็จ: ' + err.message);
+        }
     }
 }
 
-function deleteMedicine(id) {
+async function deleteMedicine(id) {
     if (confirm('ต้องการลบเวชภัณฑ์นี้ใช่หรือไม่?')) {
-        appData.inventory = appData.inventory.filter(i => i.id !== id);
-        saveData();
-        renderApp();
+        try {
+            await deleteMedicineDoc(id);
+        } catch (err) {
+            alert('ลบไม่สำเร็จ: ' + err.message);
+        }
     }
 }
 
-// ==================== QR CODE SCANNING ====================
+// ==================== QR CODE SCANNING (เวชภัณฑ์) ====================
 let videoStream = null;
 let currentScannedMedicine = null;
 
@@ -527,11 +799,11 @@ function switchScanMode(mode) {
     if (mode === 'camera') {
         if (cameraMode) cameraMode.style.display = 'block';
         if (manualMode) manualMode.style.display = 'none';
-        document.querySelector('[onclick="switchScanMode(\'camera\')"]').classList.add('active');
+        document.querySelector('[onclick="window.switchScanMode(\'camera\')"]').classList.add('active');
     } else {
         if (cameraMode) cameraMode.style.display = 'none';
         if (manualMode) manualMode.style.display = 'block';
-        document.querySelector('[onclick="switchScanMode(\'manual\')"]').classList.add('active');
+        document.querySelector('[onclick="window.switchScanMode(\'manual\')"]').classList.add('active');
     }
 }
 
@@ -620,7 +892,7 @@ function searchByCode(codeParam) {
     }
 }
 
-function submitRecord() {
+async function submitRecord() {
     const patientName = document.getElementById('recordPatient').value;
     const quantity = parseInt(document.getElementById('recordQuantity').value);
 
@@ -629,22 +901,23 @@ function submitRecord() {
         return;
     }
 
-    const newId = Math.max(...appData.records.map(r => r.id || 0), 0) + 1;
-    appData.records.push({
-        id: newId,
-        date: new Date().toLocaleString('th-TH'),
-        patientName,
-        medicineName: currentScannedMedicine.name,
-        quantity
-    });
-
-    // Update stock
-    currentScannedMedicine.stock -= quantity;
-
-    saveData();
-    alert('บันทึกการใช้เวชภัณฑ์สำเร็จ');
-    cancelRecord();
-    goToPage('dashboard');
+    try {
+        await submitRecordDoc({
+            medicineId: currentScannedMedicine.id,
+            medicineName: currentScannedMedicine.name,
+            patientName,
+            quantity,
+            // accountability: บันทึกว่าใครเป็นคนทำรายการนี้ (มาจาก session ที่ login ด้วย QR เท่านั้น)
+            performedByUid: currentUser ? currentUser.uid : null,
+            performedByEmployeeId: currentUser ? currentUser.employeeId : null,
+            performedByName: currentUser ? currentUser.name : null
+        });
+        alert('บันทึกการใช้เวชภัณฑ์สำเร็จ');
+        cancelRecord();
+        goToPage('dashboard');
+    } catch (err) {
+        alert('บันทึกไม่สำเร็จ: ' + err.message);
+    }
 }
 
 function cancelRecord() {
@@ -652,7 +925,8 @@ function cancelRecord() {
     const scanResult = document.getElementById('scanResult');
     if (recordForm) recordForm.style.display = 'none';
     if (scanResult) scanResult.style.display = 'none';
-    document.getElementById('medicineCodeInput').value = '';
+    const input = document.getElementById('medicineCodeInput');
+    if (input) input.value = '';
     currentScannedMedicine = null;
 }
 
@@ -666,18 +940,54 @@ function goToPage(page) {
 function attachEventListeners() {
     const addPatientForm = document.getElementById('addPatientForm');
     const addMedicineForm = document.getElementById('addMedicineForm');
+    const addEmployeeForm = document.getElementById('addEmployeeForm');
 
     if (addPatientForm) {
         addPatientForm.addEventListener('submit', addPatient);
     }
-
     if (addMedicineForm) {
         addMedicineForm.addEventListener('submit', addMedicine);
     }
+    if (addEmployeeForm) {
+        addEmployeeForm.addEventListener('submit', handleAddEmployee);
+    }
+}
+
+// ==================== INIT หลัง login สำเร็จ ====================
+async function initAppAfterLogin() {
+    renderAppShell();
+    startDataListeners();
+    renderApp();
 }
 
 // ==================== INITIALIZATION ====================
-document.addEventListener('DOMContentLoaded', () => {
-    loadData();
-    renderApp();
+document.addEventListener('DOMContentLoaded', async () => {
+    currentUser = await restoreSession();
+    if (currentUser) {
+        await initAppAfterLogin();
+    } else {
+        renderLogin();
+    }
 });
+
+// ==================== เปิดให้ inline onclick="" เรียกใช้ได้ (เพราะไฟล์นี้เป็น module) ====================
+window.toggleSidebar = toggleSidebar;
+window.goToPage = goToPage;
+window.deletePatient = deletePatient;
+window.deleteMedicine = deleteMedicine;
+window.switchScanMode = switchScanMode;
+window.startScanning = startScanning;
+window.stopScanning = stopScanning;
+window.searchByCode = searchByCode;
+window.submitRecord = submitRecord;
+window.cancelRecord = cancelRecord;
+window.startLoginScan = startLoginScan;
+window.stopLoginScan = stopLoginScan;
+window.submitManualLogin = submitManualLogin;
+window.handleLogout = handleLogout;
+
+// เปิดให้เรียกจาก Browser Console ได้ (ใช้สร้าง admin คนแรกครั้งเดียว ตอนยังไม่มีใคร login ในระบบเลย)
+// วิธีใช้: เปิด DevTools Console แล้วพิมพ์
+//   await window.createEmployeeWithQR({employeeId:"ADMIN001", name:"ชื่อแอดมิน", role:"admin", department:"IT"})
+// จะได้ token คืนมา เอาไปวางในช่อง "ป้อนรหัส QR ด้วยมือ" หน้า Login เพื่อเข้าระบบครั้งแรก
+window.createEmployeeWithQR = createEmployeeWithQR;

@@ -13,61 +13,19 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div id="appRoot" class="app-layout">
-        <header class="app-header">
-            <div class="header-content">
-                <div class="header-left">
-                    <button class="sidebar-toggle" onclick="toggleSidebar()"><i class="fa-solid fa-bars"></i></button>
-                    <div class="header-logo">
-                        <img src="https://upload.wikimedia.org/wikipedia/th/thumb/d/d7/MED_Phayao.png/250px-MED_Phayao.png" alt="Logo">
-                        <div class="header-title">
-                            <h1>Lean</h1>
-                            <p>บันทึกเวชภัณฑ์รายผู้ป่วย</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="header-right">
-                    <span class="header-time" id="headerTime"></span>
-                </div>
-            </div>
-        </header>
+    <!--
+        appRoot ถูกเติมเนื้อหาทั้งหมดโดย app.js (module) ตามสถานะ login:
+        - ยังไม่ login -> แสดงหน้า Login (สแกน QR)
+        - login แล้ว -> แสดง header + sidebar + app shell ตามเดิม
+    -->
+    <div id="appRoot" class="app-layout"></div>
 
-        <div class="app-body">
-            <aside class="app-sidebar" id="appSidebar">
-                <nav class="sidebar-nav">
-                    <button class="sidebar-close" onclick="toggleSidebar()"><i class="fa-solid fa-xmark"></i></button>
-                    <div class="nav-section">
-                        <a href="#" onclick="goToPage('dashboard')" class="nav-item active" id="navDashboard">
-                            <span class="nav-icon"><i class="fa-solid fa-house"></i></span>
-                            <span class="nav-label">แดชบอร์ด</span>
-                        </a>
-                        <a href="#" onclick="goToPage('scan')" class="nav-item" id="navScan">
-                            <span class="nav-icon"><i class="fa-solid fa-qrcode"></i></span>
-                            <span class="nav-label">สแกน QR</span>
-                        </a>
-                        <a href="#" onclick="goToPage('patients')" class="nav-item" id="navPatients">
-                            <span class="nav-icon"><i class="fa-solid fa-user-injured"></i></span>
-                            <span class="nav-label">จัดการผู้ป่วย</span>
-                        </a>
-                        <a href="#" onclick="goToPage('medicines')" class="nav-item" id="navMedicines">
-                            <span class="nav-icon"><i class="fa-solid fa-pills"></i></span>
-                            <span class="nav-label">จัดการเวชภัณฑ์</span>
-                        </a>
-                        <a href="#" onclick="goToPage('inventory')" class="nav-item" id="navInventory">
-                            <span class="nav-icon"><i class="fa-solid fa-boxes-stacked"></i></span>
-                            <span class="nav-label">ยอดคงคลัง</span>
-                        </a>
-                        <a href="#" onclick="goToPage('records')" class="nav-item" id="navRecords">
-                            <span class="nav-icon"><i class="fa-solid fa-clipboard-list"></i></span>
-                            <span class="nav-label">บันทึกการใช้</span>
-                        </a>
-                    </div>
-                </nav>
-            </aside>
-
-            <main class="app-main" id="app"></main>
-        </div>
-    </div>
-    <script src="app.js"></script>
+    <!--
+        ต้องโหลดเป็น type="module" เท่านั้น เพราะ firebase-config.js / auth.js / app.js
+        ใช้ import/export ของ Firebase modular SDK (ผ่าน CDN ไม่ใช้ build tool)
+        ลำดับสำคัญ: app.js จะ import auth.js ซึ่ง import firebase-config.js เองอยู่แล้ว
+        จึงระบุแค่ app.js พอ
+    -->
+    <script type="module" src="app.js"></script>
 </body>
 </html>
