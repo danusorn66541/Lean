@@ -8,24 +8,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700;800&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css">
+    
+<script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <!--
-        appRoot ถูกเติมเนื้อหาทั้งหมดโดย app.js (module) ตามสถานะ login:
-        - ยังไม่ login -> แสดงหน้า Login (สแกน QR)
-        - login แล้ว -> แสดง header + sidebar + app shell ตามเดิม
-    -->
     <div id="appRoot" class="app-layout"></div>
-
-    <!--
-        ต้องโหลดเป็น type="module" เท่านั้น เพราะ firebase-config.js / auth.js / app.js
-        ใช้ import/export ของ Firebase modular SDK (ผ่าน CDN ไม่ใช้ build tool)
-        ลำดับสำคัญ: app.js จะ import auth.js ซึ่ง import firebase-config.js เองอยู่แล้ว
-        จึงระบุแค่ app.js พอ
-    -->
-    <script type="module" src="app.js"></script>
-</body>
+    <script type="module" src="app.js?v=1.0.17"></script> </body>
 </html>

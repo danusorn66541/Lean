@@ -90,15 +90,14 @@ select:focus-visible {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 14px 28px;
+    padding: 10px 20px; /* ปรับลด padding ให้กระชับขึ้นบนมือถือ */
     max-width: 100%;
 }
  
 .header-left {
     display: flex;
     align-items: center;
-    gap: 20px;
-    flex: 1;
+    gap: 12px;
 }
  
 .sidebar-toggle {
@@ -120,11 +119,11 @@ select:focus-visible {
 .header-logo {
     display: flex;
     align-items: center;
-    gap: 15px;
+    gap: 12px;
 }
  
 .header-logo img {
-    height: 54px;
+    height: 40px; /* ปรับลดขนาดโลโก้ลงไม่ให้ค้ำจอมือถือ */
     width: auto;
     border-radius: 8px;
     background: #fff;
@@ -133,7 +132,7 @@ select:focus-visible {
 }
  
 .header-title h1 {
-    font-size: 1.7rem;
+    font-size: 1.4rem;
     font-weight: 800;
     margin: 0;
     line-height: 1.2;
@@ -141,7 +140,7 @@ select:focus-visible {
 }
  
 .header-title p {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     opacity: 0.92;
     margin: 2px 0 0 0;
     font-weight: 500;
@@ -150,15 +149,15 @@ select:focus-visible {
 .header-right {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 12px;
 }
  
 .header-time {
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 600;
     opacity: 0.95;
     background: rgba(255, 255, 255, 0.14);
-    padding: 7px 14px;
+    padding: 5px 12px;
     border-radius: 20px;
 }
  
@@ -268,13 +267,15 @@ select:focus-visible {
     flex: 1;
     overflow-y: auto;
     position: relative;
-    background:
-        radial-gradient(circle at 8% 0%, rgba(94, 61, 181, 0.10), transparent 38%),
-        radial-gradient(circle at 96% 12%, rgba(142, 124, 195, 0.12), transparent 36%),
-        radial-gradient(circle at 50% 100%, rgba(94, 61, 181, 0.06), transparent 45%),
-        radial-gradient(rgba(94, 61, 181, 0.07) 1px, transparent 1px),
-        linear-gradient(180deg, #ffffff 0%, #f6f2fb 55%, #efe8fa 100%);
-    background-size: auto, auto, auto, 24px 24px, auto;
+    
+    /* ดึงรูปตึกโรงพยาบาลมาใช้ และซ้อนหน้ากากสีขาวขุ่นบางๆ (rgba 255, 255, 255) */
+    /* เพื่อให้ฉากหลังจางลง 85% ช่วยให้ข้อมูล การ์ดตัวเลข และปุ่มต่างๆ ด้านบนอ่านง่าย สบายตา ไม่ยุ่งรุงรัง */
+    background-image: linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)), 
+                      url("https://www.tsco.or.th/public/photo/hospital/1782814811_7824721a02090fdd202d.jpg");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
 }
  
 .page-container {
@@ -583,7 +584,6 @@ select:focus-visible {
     font-weight: 600;
     cursor: pointer;
     transition: all 0.22s ease;
-    margin-left: 10px;
 }
  
 .btn-secondary:hover {
@@ -605,7 +605,7 @@ select:focus-visible {
  
 .btn-delete:hover {
     background: #dc2626;
-    transform: scale(1.05);
+    transform: scale(1.02);
 }
  
 /* ============== LISTS ============== */
@@ -632,10 +632,11 @@ select:focus-visible {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 15px;
+    padding: 18px 15px;
     border-bottom: 1px solid var(--c-border);
     transition: all 0.2s ease;
     border-radius: 8px;
+    gap: 16px;
 }
  
 .list-item:last-child {
@@ -704,21 +705,16 @@ select:focus-visible {
 .inventory-row {
     display: flex;
     justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--c-border);
-    font-size: 0.92rem;
-}
- 
-.inventory-row:last-child {
-    border-bottom: none;
+    margin-bottom: 6px;
+    font-size: 0.9rem;
 }
  
 /* ============== RECORDS ============== */
  
 .records-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 18px;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
 }
  
 .record-card {
@@ -884,10 +880,10 @@ select:focus-visible {
     .app-sidebar {
         display: none;
         position: fixed;
-        top: 80px;
+        top: 65px; /* ปรับให้พอดีกับ Header ตัวใหม่ */
         left: 0;
         width: 100%;
-        height: calc(100% - 80px);
+        height: calc(100% - 65px);
         z-index: 1000;
         max-height: none;
     }
@@ -933,24 +929,65 @@ select:focus-visible {
         grid-template-columns: 1fr;
     }
  
-    .btn-secondary {
-        margin-left: 0;
-        margin-top: 10px;
+    /* ย้ายกลุ่มปุ่มใน List ให้ลงมาอยู่ข้างล่างแบบเต็มหน้าจอ ไม่ดันเบียดออกข้างขวา */
+    .list-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .list-item > div:last-child {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+    }
+
+    .list-item .btn-secondary,
+    .list-item .btn-delete {
+        flex: 1;
+        justify-content: center;
+        padding: 12px;
     }
 }
  
 @media (max-width: 480px) {
+    /* จัดการ Header บนมือถือจอแคบให้กระจายซ้าย-ขวาอย่างสวยงาม */
+    .header-content {
+        padding: 10px 14px;
+    }
+
+    .header-left {
+        gap: 8px;
+    }
+
     .header-logo img {
-        height: 42px;
+        height: 36px;
     }
  
     .header-title h1 {
-        font-size: 1.2rem;
+        font-size: 1.15rem;
     }
  
+    .header-right {
+        gap: 8px;
+    }
+
+    /* ซ่อนเวลาและลดข้อความยาวๆ เพื่อเคลียร์พื้นที่ให้ปุ่มกดง่ายขึ้น */
     .header-time {
-        font-size: 0.75rem;
-        padding: 5px 10px;
+        display: none;
+    }
+
+    .header-user {
+        font-size: 0.8rem;
+        margin-right: 4px;
+        max-width: 110px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .header-right .btn-secondary {
+        padding: 6px 12px;
+        font-size: 0.8rem;
     }
  
     .page-container {
@@ -961,56 +998,227 @@ select:focus-visible {
         padding: 20px;
     }
 }
-/* ==================== LOGIN SCREEN (เพิ่มใหม่: QR Login) ==================== */
+
+/* ==================== LOGIN SCREEN ==================== */
 .login-screen {
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 20px;
+    background-image: linear-gradient(135deg, rgba(46, 37, 66, 0.55) 0%, rgba(94, 61, 181, 0.45) 100%), 
+                      url("https://www.tsco.or.th/public/photo/hospital/1782814811_7824721a02090fdd202d.jpg");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+}
+
+.login-box {
+    width: 100%;
+    max-width: 400px;
+    background: rgba(255, 255, 255, 0.92); 
+    backdrop-filter: blur(20px); 
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 28px; /* เพิ่มความโค้งมนให้นุ่มนวลชวนมอง */
+    padding: 40px 30px;
+    text-align: center;
+    box-shadow: 0 30px 60px rgba(46, 37, 66, 0.35); 
+}
+
+.login-logo-wrapper {
+    display: inline-block;
+    background: #ffffff;
+    padding: 8px;
+    border-radius: 50%;
+    box-shadow: 0 10px 25px rgba(94, 61, 181, 0.15);
+    margin-bottom: 12px;
+}
+
+.login-logo {
+    width: 85px;
+    height: 85px;
+    object-fit: contain;
+    display: block;
+}
+
+.login-brand {
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: var(--c-primary-dark);
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+
+.login-subtitle {
+    font-size: 1rem;
+    color: #64748b; /* สีเนี๊ยบแบบสากล */
+    margin-top: 4px;
+    margin-bottom: 28px;
+    font-weight: 500;
+}
+
+.login-group {
+    text-align: left;
+    margin-bottom: 20px;
+}
+
+.login-group label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--c-primary-dark) !important; /* เพิ่ม Contrast ความชัดเจน */
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.login-group input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    background: rgba(248, 250, 252, 0.8);
+    color: var(--c-text);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.login-group input:focus {
+    outline: none;
+    border-color: var(--c-primary);
+    background: #ffffff;
+    box-shadow: 0 0 0 4px rgba(94, 61, 181, 0.15);
+}
+
+/* ปุ่มแบบ Gradient ไล่สีมีมิติ ทรงพลัง */
+.btn-login-submit {
+    width: 100%;
+    background: linear-gradient(135deg, #4a2d8f 0%, #5e3db5 50%, #8e7cc3 100%);
+    color: white;
+    border: none;
+    padding: 14px;
+    border-radius: 12px;
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    box-shadow: 0 6px 20px rgba(94, 61, 181, 0.35);
+    transition: all 0.2s ease;
+    margin-top: 28px;
+}
+
+.btn-login-submit:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(94, 61, 181, 0.45);
+}
+
+.btn-login-submit:active {
+    transform: translateY(0);
 }
 
 .login-box {
     width: 100%;
     max-width: 420px;
-    background: #ffffff;
-    border-radius: 18px;
-    padding: 32px 24px;
+    background: rgba(255, 255, 255, 0.88); 
+    backdrop-filter: blur(20px); 
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 24px;
+    padding: 45px 35px;
     text-align: center;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+    box-shadow: 0 30px 60px rgba(46, 37, 66, 0.35); 
 }
 
 .login-logo {
-    width: 72px;
-    height: 72px;
+    width: 95px;
+    height: 95px;
     object-fit: contain;
-    margin-bottom: 10px;
+    margin-bottom: 15px;
+    background: #ffffff;
+    padding: 6px;
+    border-radius: 50%;
+    box-shadow: 0 8px 20px rgba(94, 61, 181, 0.18); 
 }
 
 .login-manual {
     margin-top: 22px;
     padding-top: 18px;
-    border-top: 1px solid #eee;
+    border-top: 1px solid var(--c-border);
 }
 
 .login-manual p {
     font-size: 13px;
-    color: #888;
+    color: var(--c-text-muted);
     margin-bottom: 8px;
 }
 
 .login-manual input {
     width: 100%;
-    padding: 10px 12px;
-    border: 1px solid #ddd;
+    padding: 12px;
+    border: 2px solid var(--c-border);
     border-radius: 10px;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
     font-size: 14px;
+    background: var(--c-surface-alt);
+    transition: all 0.2s ease;
+}
+
+.login-manual input:focus {
+    outline: none;
+    border-color: var(--c-primary);
+    background: #ffffff;
+    box-shadow: 0 0 0 4px rgba(94, 61, 181, 0.12);
 }
 
 .header-user {
     font-size: 13px;
-    color: #555;
+    color: rgba(255, 255, 255, 0.9);
     margin-right: 12px;
     white-space: nowrap;
+    font-weight: 600;
+}
+
+/* ==================== PREMIUM OVERLAY MODAL POPUP UPDATES ==================== */
+@keyframes premiumModalFade {
+    from { opacity: 0; transform: scale(0.92) translateY(15px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+#scanModalOverlay {
+    background: rgba(46, 37, 66, 0.55) !important; 
+    backdrop-filter: blur(8px); 
+    -webkit-backdrop-filter: blur(8px);
+    transition: all 0.3s ease;
+}
+
+#scanModalOverlay #recordForm {
+    animation: premiumModalFade 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    border-radius: 24px !important;
+    border: 1px solid rgba(255, 255, 255, 0.8) !important;
+    border-top: 6px solid var(--c-primary) !important; 
+    box-shadow: 0 25px 60px rgba(46, 37, 66, 0.4) !important; 
+    padding: 30px 25px !important;
+}
+
+#scanModalOverlay .btn-primary {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important; 
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3) !important;
+}
+
+#scanModalOverlay .btn-secondary {
+    background: #f1f5f9 !important; 
+    color: #64748b !important;
+    border: 1px solid #cbd5e1 !important;
+    margin-left: 0 !important;
+}
+
+#scanModalOverlay .btn-secondary:hover {
+    background: #e2e8f0 !important;
+    color: #334155 !important;
 }

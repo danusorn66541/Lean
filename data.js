@@ -1,5 +1,5 @@
 // data.js
-// Data access layer สำหรับ patients / inventory(medicines) / records
+// Data access layer สำหรับ patients / inventory(medicines) / records / employees
 // เชื่อมกับ Firestore แบบ real-time (onSnapshot) แทน localStorage ทั้งหมด
 
 import { db } from "./firebase-config.js";
@@ -24,8 +24,9 @@ export function listenPatients(onChange) {
   }, (err) => console.error("listenPatients error:", err));
 }
 
-export async function addPatientDoc({ hn, name, ward, bed }) {
-  await addDoc(collection(db, "patients"), { hn, name, ward, bed, createdAt: serverTimestamp() });
+// [แก้ไข] ตัดฟิลด์ hn ออกจากพารามิเตอร์และการบันทึก เพื่อสอดคล้องกับระบบ Lean ประจำเตียง
+export async function addPatientDoc({ name, ward, bed }) {
+  await addDoc(collection(db, "patients"), { name, ward, bed, createdAt: serverTimestamp() });
 }
 
 export async function deletePatientDoc(id) {
@@ -41,9 +42,10 @@ export function listenInventory(onChange) {
   }, (err) => console.error("listenInventory error:", err));
 }
 
-export async function addMedicineDoc({ code, name, stock, unit, reorder }) {
+// [แก้ไข] ตัดฟิลด์ code (รหัสยา) ออกจากการรับค่าและการบันทึก
+export async function addMedicineDoc({ name, stock, unit, reorder }) {
   await addDoc(collection(db, "inventory"), {
-    code, name, stock, unit, reorder, createdAt: serverTimestamp()
+    name, stock, unit, reorder, createdAt: serverTimestamp()
   });
 }
 
@@ -89,4 +91,13 @@ export async function submitRecordDoc({ medicineId, medicineName, patientName, q
       createdAt: serverTimestamp()
     });
   });
+}
+
+// ==================== EMPLOYEES (สำหรับหน้า admin) ====================
+export function listenEmployees(onChange) {
+  const q = query(collection(db, "Usertest"), orderBy("createdAt", "desc"));
+  return onSnapshot(q, (snapshot) => {
+    const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    onChange(list);
+  }, (err) => console.error("listenEmployees error:", err));
 }
