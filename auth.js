@@ -5,18 +5,25 @@ import {
   getApps,
   deleteApp
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
-import {
-  getAuth,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut,
-  setPersistence,
+import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, // ✅ เติมตัวนี้เข้าไปเพื่อให้ระบบสร้างพนักงานได้
+  signOut, 
+  onAuthStateChanged, 
+  sendPasswordResetEmail,
+  setPersistence,           
   browserLocalPersistence,
-  onAuthStateChanged
+  updatePassword
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import {
   doc, setDoc, getDoc, updateDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+export async function adminResetPassword(email) {
+  const auth = getAuth();
+  await sendPasswordResetEmail(auth, email);
+}
 
 const SESSION_KEY = "leanCurrentUser";
 const COLLECTION_NAME = "Usertest";
@@ -155,4 +162,14 @@ export function restoreSession() {
       }
     });
   });
+}
+// ✅ เพิ่มฟังก์ชันนี้ไว้ล่างสุดของไฟล์ auth.js เพื่อส่งออกสิทธิ์ให้ App.js นำไปใช้งานครับ
+export function subscribeAuth(callback) {
+  const auth = getAuth();
+  return onAuthStateChanged(auth, callback);
+}
+export async function updateCurrentUserPassword(newPassword) {
+    const user = auth.currentUser;
+    if (!user) throw new Error("ไม่พบข้อมูลผู้ใช้งานในระบบ");
+    await updatePassword(user, newPassword);
 }
