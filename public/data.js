@@ -115,39 +115,30 @@ export async function getTotalRecordsCount() {
 /**
  * บันทึกการใช้เวชภัณฑ์ + ตัดสต็อกพร้อมกันแบบ atomic
  */
-export async function submitRecordDoc({ patientName, performedByUid, performedByName, shift, items }) {
+export async function submitRecordDoc({ patientId, patientName, performedByUid, performedByName, shift, items }) { // 👈 เพิ่ม patientId ตรงนี้
   await runTransaction(db, async (tx) => {
     const medSnaps = [];
 
-    // 1. [READS] ตรวจเช็คปริมาณสต็อกก่อนเซฟเขียน
     for (const item of items) {
       const medicineRef = doc(db, "inventory", item.medicineId);
       const snap = await tx.get(medicineRef);
-      
-      if (!snap.exists()) {
-        throw new Error(`ไม่พบเวชภัณฑ์ "${item.medicineName}" ในระบบแล้ว`);
-      }
-      
+      if (!snap.exists()) throw new Error(`ไม่พบเวชภัณฑ์ "${item.medicineName}" ในระบบแล้ว`);
       const currentStock = snap.data().stock || 0;
-      if (currentStock < item.quantity) {
-        throw new Error(`สต็อก "${item.medicineName}" ไม่พอ (คงเหลือ ${currentStock} ${item.unit || ''})`);
-      }
-      
+      if (currentStock < item.quantity) throw new Error(`สต็อก "${item.medicineName}" ไม่พอ (คงเหลือ ${currentStock})`);
       medSnaps.push({ ref: medicineRef, currentStock, quantity: item.quantity });
     }
 
-    // 2. [WRITES] หักยอดสต็อกลดลงตามจำนวนเบิกจริง
     for (const med of medSnaps) {
       tx.update(med.ref, { stock: med.currentStock - med.quantity });
     }
 
-    // 3. [WRITES] สร้างเอกสาร Records ใบใหม่ พร้อมฝังข้อมูลเวร (Shift) ลงไป
     const recordRef = doc(collection(db, "records"));
     tx.set(recordRef, {
+      patientId, // 👈 แสตมป์ ID คนไข้ลงฐานข้อมูลคลาวด์แบบถาวร
       patientName,
       performedByUid: performedByUid || null,
       performedByName: performedByName || null,
-      shift: shift || '-', // 🔥 [เพิ่มใหม่] เซฟรหัสเวร เช้า/บ่าย/ดึก ลงฟิลด์ข้อมูลฐานข้อมูลคลาวด์
+      shift: shift || '-',
       items: items, 
       createdAt: serverTimestamp()
     });
@@ -174,6 +165,49 @@ export function listenEmployees(onChange) {
     onChange(list);
   }, (err) => console.error("listenEmployees error:", err));
 }
+
+export async function voidRecordDoc(recordId, voidedByName) {
+  await runTransaction(db, async (tx) => {
+    const recordRef = doc(db, "records", recordId);
+    const recordSnap = await tx.get(recordRef);
+
+    if (!recordSnap.exists()) throw new Error("ไม่พบบันทึกนี้ในระบบ");
+    
+    const recordData = recordSnap.data();
+    if (recordData.voided) throw new Error("บันทึกนี้ถูกยกเลิกไปแล้ว");
+
+    // 1. อ่านรายการยาทั้งหมดในบิล เพื่อเตรียมคืนสต็อก
+    const items = recordData.items || [];
+    const medSnaps = [];
+
+    for (const item of items) {
+      if (item.medicineId) {
+        const medRef = doc(db, "inventory", item.medicineId);
+        const medSnap = await tx.get(medRef);
+        if (medSnap.exists()) {
+          medSnaps.push({ 
+            ref: medRef, 
+            currentStock: medSnap.data().stock || 0, 
+            returnQty: item.quantity 
+          });
+        }
+      }
+    }
+
+    // 2. คืนค่ายอดสต็อกให้ยาแต่ละตัว
+    for (const med of medSnaps) {
+      tx.update(med.ref, { stock: med.currentStock + med.returnQty });
+    }
+
+    // 3. เปลี่ยนสถานะบิลเป็น "ถูกยกเลิกแล้ว"
+    tx.update(recordRef, {
+      voided: true,
+      voidedBy: voidedByName,
+      voidedAt: serverTimestamp()
+    });
+  });
+}
+
 export async function getAllRecordsOnceFromFirestore() {
   try {
     const q = query(collection(db, "records"), orderBy("createdAt", "desc"));

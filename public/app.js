@@ -10,7 +10,8 @@ import {
   listenPatients, addPatientDoc, deletePatientDoc, updatePatientDoc,
   listenInventory, addMedicineDoc, deleteMedicineDoc, restockMedicineDoc,
   submitRecordDoc, listenEmployees,
-  getRecordsPageFromFirestore, getAllRecordsOnceFromFirestore,getTotalRecordsCount // 👈 ใส่ 2 ตัวนี้แทนที่ของเดิม
+  getRecordsPageFromFirestore, getAllRecordsOnceFromFirestore, getTotalRecordsCount,
+  voidRecordDoc // 👈 ใส่ 2 ตัวนี้แทนที่ของเดิม
 } from "./data.js";
 
 // ตรวจสอบว่าเบราว์เซอร์รองรับกล้อง live scan จริงหรือไม่
@@ -351,95 +352,231 @@ async function renderDashboard(container) {
 }
 
 function renderPatients(container) {
-    var items = appData.patients.map(function(p) {
+    // จัดเรียงผังเตียงตามตัวเลข
+    var sortedPatients = [...appData.patients].sort(function(a, b) {
+        return a.bed.localeCompare(b.bed, undefined, {numeric: true, sensitivity: 'base'});
+    });
+
+    var items = sortedPatients.map(function(p) {
         var safeName = escapeHtml(p.name).replace(/'/g, "\\'");
         var safeWard = escapeHtml(p.ward).replace(/'/g, "\\'");
         var safeBed = escapeHtml(p.bed).replace(/'/g, "\\'");
 
-        return '<div class="list-item">' +
-            '<div class="item-info"><div class="item-title">' + escapeHtml(p.name) + '</div>' +
-            '<div class="item-detail">หอ ' + escapeHtml(p.ward) + ' | เตียง ' + escapeHtml(p.bed) + '</div></div>' +
-            '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-            '<button class="btn-secondary" style="background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0;" onclick="window.promptEditPatient(\'' + p.id + '\', \'' + safeName + '\', \'' + safeWard + '\', \'' + safeBed + '\')"><i class="fa-solid fa-pen-to-square"></i> แก้ไข</button>' + 
-            '<button class="btn-secondary" onclick="window.showQRCode(\'' + safeName + '\', \'' + safeName + '\')"><i class="fa-solid fa-qrcode"></i> เตียง QR</button>' + 
-            '<button class="btn-delete" onclick="window.deletePatient(\'' + p.id + '\')"><i class="fa-solid fa-trash"></i> ลบ</button>' +
-            '</div></div>';
+        var isVacant = !p.name || p.name === '-' || p.name === 'ว่าง';
+        
+        var statusBadge = isVacant 
+            ? '<span style="background:#dcfce7; color:#16a34a; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700; display:flex; align-items:center; gap:4px;"><i class="fa-solid fa-circle-check"></i> ว่าง</span>' 
+            : '<span style="background:#ffedd5; color:#f97316; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700; display:flex; align-items:center; gap:4px;"><i class="fa-solid fa-bed-pulse"></i> ไม่ว่าง</span>';
+        
+        var cardBorder = isVacant ? 'border-top: 5px solid #10b981;' : 'border-top: 5px solid #f97316;';
+        var nameDisplay = isVacant ? '<span style="color:#94a3b8; font-style:italic;">[ ยังไม่มีผู้ป่วย ]</span>' : '👤 <b>' + escapeHtml(p.name) + '</b>';
+
+        var searchText = (p.bed + ' ' + (p.name || '')).toLowerCase();
+        var bedStatus = isVacant ? 'vacant' : 'occupied'; 
+
+        var actionButtons = '';
+        if (isVacant) {
+            actionButtons = 
+                '<button type="button" style="flex:1; background:#f8fafc; border:1px solid #cbd5e1; color:#0f172a; padding:12px; border-radius:10px; font-weight:600; font-size:14px; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:6px;" onclick="window.promptMoveBed(\'' + p.id + '\', \'' + safeName + '\', \'' + safeWard + '\', \'' + safeBed + '\')"><i class="fa-solid fa-arrows-turn-to-dots"></i> ย้าย / จัดการ</button>' + 
+                '<button type="button" style="width:48px; background:#f8fafc; border:1px solid #cbd5e1; padding:12px; border-radius:10px; color:#475569; cursor:pointer; transition: 0.2s;" onclick="window.showQRCode(\'' + safeBed + '\', \'เตียง ' + safeBed + '\')" onmouseover="this.style.background=\'#e2e8f0\'" onmouseout="this.style.background=\'#f8fafc\'"><i class="fa-solid fa-qrcode"></i></button>';
+        } else {
+            actionButtons = 
+                '<button type="button" onclick="window.goToDispense(\'' + safeBed + '\')" style="flex:1.5; background:#5e3db5; border:none; color:#fff; padding:12px; border-radius:10px; font-weight:600; font-size:14px; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:6px; box-shadow:0 4px 6px rgba(94,61,181,0.2);"><i class="fa-solid fa-pills"></i> จ่ายยา</button>' +
+                '<button type="button" style="flex:1; background:#f8fafc; border:1px solid #cbd5e1; color:#0f172a; padding:12px; border-radius:10px; font-weight:600; font-size:13px; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:4px;" onclick="window.promptMoveBed(\'' + p.id + '\', \'' + safeName + '\', \'' + safeWard + '\', \'' + safeBed + '\')"><i class="fa-solid fa-arrows-turn-to-dots"></i> ย้าย</button>' + 
+                '<button type="button" style="width:48px; background:#f8fafc; border:1px solid #cbd5e1; padding:12px; border-radius:10px; color:#475569; cursor:pointer; transition: 0.2s;" onclick="window.showQRCode(\'' + safeBed + '\', \'เตียง ' + safeBed + '\')" onmouseover="this.style.background=\'#e2e8f0\'" onmouseout="this.style.background=\'#f8fafc\'"><i class="fa-solid fa-qrcode"></i></button>';
+        }
+
+        return '<div class="bed-card" data-search="' + searchText + '" data-status="' + bedStatus + '" style="background:#fff; border-radius:16px; padding:18px; box-shadow:0 4px 15px rgba(0,0,0,0.04); ' + cardBorder + ' display:flex; flex-direction:column; gap:12px;">' +
+            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+            '<div style="font-size:18px; font-weight:800; color:#1e293b;">เตียง ' + escapeHtml(p.bed) + '</div>' + statusBadge +
+            '</div>' +
+            '<div style="font-size:15px; color:#334155; min-height:24px;">' + nameDisplay + '</div>' +
+            '<div style="font-size:12px; color:#64748b;"><i class="fa-solid fa-hospital"></i> หอผู้ป่วย: ' + escapeHtml(p.ward) + '</div>' +
+            '<div style="display:flex; gap:8px; margin-top:10px;">' + actionButtons + '</div></div>';
     }).join('');
 
-    container.innerHTML =
-        '<div class="page-container"><div class="page-header"><h1><i class="fa-solid fa-user-injured"></i> จัดการผู้ป่วย</h1>' +
-        (appData.patients.length > 0 ? '<button class="btn-primary" onclick="window.printAllQRCodes()"><i class="fa-solid fa-print"></i> พิมพ์ QR ทั้งหมด</button>' : '') +
+    // 🔥 สร้าง UI ช่องค้นหา + Dropdown กรองสถานะเตียง (กาง 100% จัดเรียงแบบ 2 ส่วน)
+    var searchHtml = 
+        '<div style="display:flex; gap:8px; width:100%;">' +
+        '<select id="patientStatusFilter" onchange="window.filterPatientCards()" style="flex-shrink:0; padding:10px 12px; border-radius:12px; border:2px solid #cbd5e1; font-family:inherit; font-size:13px; outline:none; cursor:pointer; background:#f8fafc; color:#475569; font-weight:600;">' +
+        '<option value="all">ทุกสถานะ</option>' +
+        '<option value="occupied">เฉพาะไม่ว่าง</option>' +
+        '<option value="vacant">เฉพาะว่าง</option>' +
+        '</select>' +
+        '<div style="position:relative; flex:1;">' +
+        '<i class="fa-solid fa-magnifying-glass" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); color:#94a3b8;"></i>' +
+        '<input type="text" id="patientSearchInput" onkeyup="window.filterPatientCards()" placeholder="พิมพ์เตียง หรือ ชื่อ..." style="width:100%; padding:10px 10px 10px 38px; border-radius:12px; border:2px solid #cbd5e1; font-family:inherit; font-size:14px; outline:none; box-sizing:border-box;">' +
         '</div>' +
-        '<div class="page-content"><form class="form-section" id="addPatientForm"><h2>เพิ่มผู้ป่วยใหม่</h2>' +
-        '<div class="form-row">' +
-        '<div class="form-group" style="grid-column: 1 / -1"><label>ชื่อผู้ป่วย</label><input type="text" id="patientName" placeholder="ชื่อ-นามสกุล" required></div></div>' +
-        '<div class="form-row"><div class="form-group"><label>หอผู้ป่วย</label><input type="text" id="patientWard" placeholder="เช่น A, B, C" required></div>' +
-        '<div class="form-group"><label>เตียงที่</label><input type="text" id="patientBed" placeholder="เช่น 101, 205" required></div></div>' +
-        '<button type="submit" class="btn-primary"><i class="fa-solid fa-plus"></i> เพิ่มผู้ป่วย</button></form>' +
-        '<div class="list-section"><h2><i class="fa-solid fa-list"></i> รายชื่อผู้ป่วย</h2>' +
-        '<div id="patientList">' + (appData.patients.length === 0 ? '<p class="empty"><i class="fa-regular fa-folder-open"></i><br>ไม่มีข้อมูลผู้ป่วย</p>' : items) + '</div>' +
+        '</div>';
+
+    container.innerHTML =
+        '<div class="page-container">' +
+        // 🔥 ปรับ Layout เป็นแบบแบ่งชั้น (Title อยู่บน, Search อยู่ล่าง)
+        '<div class="page-header" style="display:flex; flex-direction:column; gap:16px; align-items:stretch; margin-bottom:20px;">' +
+        '  <div style="display:flex; justify-content:space-between; align-items:center;">' +
+        '    <h1 style="margin:0;"><i class="fa-solid fa-hospital-user"></i> ผังเตียงผู้ป่วย</h1>' +
+        '    ' + (appData.patients.length > 0 ? '<button class="btn-primary" onclick="window.printAllQRCodes()" style="white-space:nowrap; padding:10px 16px;"><i class="fa-solid fa-print"></i> ปริ้นท์ QR</button>' : '') +
+        '  </div>' +
+        '  <div style="width:100%;">' + searchHtml + '</div>' +
+        '</div>' +
+        '<div class="page-content">' +
+        '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:16px;">' + 
+        (appData.patients.length === 0 ? '<div style="grid-column:1/-1;"><p class="empty"><i class="fa-regular fa-folder-open"></i><br>ไม่มีข้อมูลผังเตียง</p></div>' : items) + 
         '</div></div></div>';
 }
 
-function promptEditPatient(id, currentName, currentWard, currentBed) {
+function promptMoveBed(id, currentName, currentWard, currentBed) {
+    var sortedBeds = [...appData.patients].sort(function(a, b) {
+        return a.bed.localeCompare(b.bed, undefined, {numeric: true});
+    });
+
+    var optionsHtml = sortedBeds.map(function(p) {
+        var isVacant = !p.name || p.name === '-' || p.name === 'ว่าง';
+        
+        // 🔥 [เปลี่ยนสีตรงนี้] เปลี่ยนจุดแดง 🔴 เป็นส้ม 🟠 และเปลี่ยนสีพื้นหลัง/ตัวหนังสือ
+        var statusBadge = isVacant 
+            ? '<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700;">🟢 ว่าง</span>' 
+            : '<span style="background:#ffedd5; color:#f97316; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700;">🟠 ไม่ว่าง</span>';
+            
+        var isCurrent = p.id === id;
+        var bedLabel = 'เตียง ' + escapeHtml(p.bed);
+        var displayName = isVacant ? 'ว่าง' : escapeHtml(p.name);
+        var searchText = (bedLabel + ' ' + displayName).toLowerCase(); 
+        
+        return '<div id="bed-opt-' + p.id + '" class="swal-bed-item" onclick="window.selectBedOption(\'' + p.id + '\', \'' + bedLabel + '\')" data-text="' + searchText + '" style="padding:12px 16px; border-bottom:1px solid #f1f5f9; cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition:0.2s; ' + (isCurrent ? 'background:#f0fdf4; border-left:4px solid #16a34a;' : 'background:#fff; border-left:4px solid transparent;') + '">' +
+               '<div style="text-align:left;">' +
+               '<div style="font-weight:700; color:#1e293b; font-size:15px;">' + bedLabel + (isCurrent ? ' <span style="color:#16a34a;font-size:12px;">(ปัจจุบัน)</span>' : '') + '</div>' +
+               '<div style="font-size:12px; color:#64748b;">👤 ' + displayName + ' | วอร์ด: ' + escapeHtml(p.ward) + '</div>' +
+               '</div>' + statusBadge +
+               '</div>';
+    }).join('');
+
+    var initialBedLabel = 'เตียง ' + currentBed;
+
     Swal.fire({
-        title: 'แก้ไขข้อมูลผู้ป่วย / ย้ายเตียง',
+        title: 'จัดการผู้ป่วย / ย้ายเตียง',
         html:
-            '<div style="text-align:left; display:flex; flex-direction:column; gap:12px; font-family:inherit;">' +
-            '  <div><label style="font-size:13px; font-weight:600; color:#475569;">ชื่อ-นามสกุลผู้ป่วย</label>' +
-            '  <input id="swal-edit-name" class="swal2-input" style="width:100%; margin:4px 0 0 0;" value="' + currentName + '"></div>' +
-            '  <div><label style="font-size:13px; font-weight:600; color:#475569;">หอผู้ป่วย (Ward)</label>' +
-            '  <input id="swal-edit-ward" class="swal2-input" style="width:100%; margin:4px 0 0 0;" value="' + currentWard + '"></div>' +
-            '  <div><label style="font-size:13px; font-weight:600; color:#475569;">เตียงที่ (Bed)</label>' +
-            '  <input id="swal-edit-bed" class="swal2-input" style="width:100%; margin:4px 0 0 0;" value="' + currentBed + '"></div>' +
+            '<div style="text-align:left; font-family:inherit;">' +
+            '  <div style="background:#f8fafc; padding:16px; border-radius:14px; border:1px solid #e2e8f0; margin-bottom:18px;">' +
+            '    <div style="font-size:12.5px; color:#64748b; font-weight:600; margin-bottom:6px;">ชื่อผู้ป่วยที่กำลังดำเนินการ</div>' +
+            '    <div style="display:flex; gap:10px;">' +
+            '      <input id="swal-move-name" style="flex:1; border:none; background:transparent; font-size:16px; font-weight:700; color:#1e293b; outline:none; padding:4px;" value="' + currentName + '" disabled>' +
+            '      <button type="button" id="btn-unlock-name" style="background:#e0f2fe; color:#0284c7; border:none; border-radius:10px; width:40px; height:40px; display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 2px 4px rgba(2,132,199,0.1);" title="แก้ไขชื่อ/จำหน่าย">' +
+            '        <i class="fa-solid fa-user-pen"></i>' +
+            '      </button>' +
+            '    </div>' +
+            '  </div>' +
+            '  <div style="margin-bottom:8px; font-size:13.5px; font-weight:700; color:#334155;">เลือกเตียงเป้าหมาย:</div>' +
+            '  <div style="position:relative;">' +
+            '    <div id="swal-dd-header" onclick="window.toggleBedDropdown()" style="background:#fff; border:2px solid #cbd5e1; border-radius:12px; padding:14px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-weight:600; color:#1e293b; box-shadow:0 2px 5px rgba(0,0,0,0.02); transition:border-color 0.2s;">' +
+            '      <span id="swal-dd-text">' + initialBedLabel + '</span>' +
+            '      <i id="swal-dd-icon" class="fa-solid fa-chevron-down" style="color:#64748b; transition:transform 0.3s;"></i>' +
+            '    </div>' +
+            '    <div id="swal-dd-body" style="display:none; background:#fff; border:2px solid #5e3db5; border-radius:12px; margin-top:6px; box-shadow:0 10px 25px rgba(0,0,0,0.1); overflow:hidden;">' +
+            '      <div style="padding:10px; border-bottom:1px solid #e2e8f0; background:#f8fafc;">' +
+            '        <div style="position:relative;">' +
+            '          <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#94a3b8;"></i>' +
+            '          <input type="text" id="swal-bed-search" placeholder="พิมพ์เตียง หรือ ชื่อคนไข้..." style="width:100%; padding:10px 10px 10px 36px; border-radius:8px; border:1px solid #cbd5e1; box-sizing:border-box; font-size:14px; font-family:inherit; outline:none;" onkeyup="window.filterBedOptions()">' +
+            '        </div>' +
+            '      </div>' +
+            '      <div id="swal-bed-list" style="max-height:220px; overflow-y:auto; background:#fff;">' + optionsHtml + '</div>' +
+            '    </div>' +
+            '  </div>' +
+            '  <input type="hidden" id="swal-move-target-id" value="' + id + '">' +
             '</div>',
         focusConfirm: false,
         showCancelButton: true,
-        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> บันทึกการเปลี่ยนแปลง',
+        confirmButtonText: '<i class="fa-solid fa-check"></i> ยืนยันการเปลี่ยนแปลง',
         cancelButtonText: 'ยกเลิก',
         confirmButtonColor: '#5e3db5',
         cancelButtonColor: '#94a3b8',
-        preConfirm: () => {
-            var name = document.getElementById('swal-edit-name').value.trim();
-            var ward = document.getElementById('swal-edit-ward').value.trim();
-            var bed = document.getElementById('swal-edit-bed').value.trim();
-            
-            if (!name || !ward || !bed) {
-                Swal.showValidationMessage('กรุณากรอกข้อมูลให้ครบถ้วนทุกช่อง');
-                return false;
+        didOpen: function() {
+            var unlockBtn = document.getElementById('btn-unlock-name');
+            var nameInput = document.getElementById('swal-move-name');
+            if (unlockBtn && nameInput) {
+                unlockBtn.addEventListener('click', function() {
+                    nameInput.disabled = !nameInput.disabled;
+                    if (!nameInput.disabled) {
+                        nameInput.focus();
+                        nameInput.style.background = '#fff';
+                        nameInput.style.border = '2px dashed #93c5fd';
+                        nameInput.style.borderRadius = '8px';
+                        unlockBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                        unlockBtn.style.background = '#10b981';
+                        unlockBtn.style.color = '#fff';
+                    } else {
+                        nameInput.style.background = 'transparent';
+                        nameInput.style.border = 'none';
+                        unlockBtn.innerHTML = '<i class="fa-solid fa-user-pen"></i>';
+                        unlockBtn.style.background = '#e0f2fe';
+                        unlockBtn.style.color = '#0284c7';
+                    }
+                });
             }
-
-            // 🔍 ตรวจสอบว่า หอผู้ป่วย + เตียง นี้มีผู้ป่วยรายอื่นครองอยู่แล้วหรือไม่ (ไม่นับตัวเอง)
-            var isBedOccupied = appData.patients.some(function(p) {
-                return p.id !== id && 
-                       p.ward.trim().toLowerCase() === ward.toLowerCase() && 
-                       p.bed.trim().toLowerCase() === bed.toLowerCase();
-            });
-
-            if (isBedOccupied) {
-                // ✅ แสดงข้อความแจ้งเตือนตามที่คุณกำหนดทันทีในกรณีที่เตียงซ้ำ
-                Swal.showValidationMessage('⚠️ หอ ' + ward + ' เตียง ' + bed + ' มีผู้ป่วยรายอื่นอยู่แล้ว กรุณาย้ายผู้ป่วยเตียงนั้นก่อน');
-                return false;
-            }
-
-            return { name: name, ward: ward, bed: bed };
+        },
+        preConfirm: function() {
+            var name = document.getElementById('swal-move-name').value.trim();
+            var targetId = document.getElementById('swal-move-target-id').value;
+            if (!name) { Swal.showValidationMessage('กรุณาระบุชื่อผู้ป่วย (หรือพิมพ์ - เพื่อว่างเตียง)'); return false; }
+            if (!targetId) { Swal.showValidationMessage('กรุณาคลิกเลือกเตียงเป้าหมายจากรายการ'); return false; }
+            return { name: name, targetId: targetId };
         }
     }).then(async (result) => {
         if (result.isConfirmed) {
-            try {
-                // ยิงอัปเดตไปหลังบ้านคลาวด์ Firestore
-                await updatePatientDoc(id, result.value);
+            var newName = result.value.name;
+            var targetId = result.value.targetId;
+
+            var currentBedDoc = appData.patients.find(function(p) { return p.id === id; });
+            var targetBedDoc = appData.patients.find(function(p) { return p.id === targetId; });
+
+            if (targetId === id) {
+                Swal.fire({ title: 'กำลังบันทึกข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                try {
+                    await updatePatientDoc(id, { name: newName, ward: currentBedDoc.ward, bed: currentBedDoc.bed });
+                    Toast.fire({ icon: 'success', title: 'อัปเดตข้อมูลสำเร็จ' });
+                    renderApp();
+                } catch (err) { Swal.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด', text: err.message }); }
+            } 
+            else {
+                var targetIsVacant = !targetBedDoc.name || targetBedDoc.name === '-' || targetBedDoc.name === 'ว่าง';
                 
-                Toast.fire({
-                    icon: 'success',
-                    title: 'อัปเดตข้อมูลผู้ป่วยเรียบร้อยแล้ว'
-                });
-            } catch (err) {
-                Swal.fire({
-                    icon: 'error',
-                    title: 'เกิดข้อผิดพลาด',
-                    text: err.message
-                });
+                if (targetIsVacant) {
+                    Swal.fire({ title: 'กำลังย้ายเตียง...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                    try {
+                        await updatePatientDoc(targetId, { name: newName, ward: targetBedDoc.ward, bed: targetBedDoc.bed });
+                        await updatePatientDoc(id, { name: '-', ward: currentBedDoc.ward, bed: currentBedDoc.bed });
+                        Toast.fire({ icon: 'success', title: 'ย้ายเตียงสำเร็จ' });
+                        renderApp();
+                    } catch (err) { Swal.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด', text: err.message }); }
+                } 
+                else {
+                    Swal.fire({
+                        title: 'เตียงนี้มีผู้ป่วยอยู่แล้ว!',
+                        html: 'เตียงหมายเลข <b>' + targetBedDoc.bed + '</b> มีคุณ <b>' + targetBedDoc.name + '</b> อยู่<br><br><span style="color:#5e3db5;font-weight:700;">ต้องการ "สลับตำแหน่งเตียง" คู่นี้ใช่หรือไม่?</span>',
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonText: 'ยืนยันสลับเตียง',
+                        cancelButtonText: 'ยกเลิก',
+                        showLoaderOnConfirm: true,
+                        preConfirm: async () => {
+                            try {
+                                var originalTargetName = targetBedDoc.name;
+                                await updatePatientDoc(targetId, { name: newName, ward: targetBedDoc.ward, bed: targetBedDoc.bed });
+                                await updatePatientDoc(id, { name: originalTargetName, ward: currentBedDoc.ward, bed: currentBedDoc.bed });
+                                return true;
+                            } catch (error) {
+                                Swal.showValidationMessage(`เกิดข้อผิดพลาด: ${error.message}`);
+                                return false;
+                            }
+                        },
+                        allowOutsideClick: () => !Swal.isLoading()
+                    }).then((swapResult) => {
+                        if (swapResult.isConfirmed) {
+                            Toast.fire({ icon: 'success', title: 'สลับตำแหน่งเตียงสำเร็จ' });
+                            renderApp();
+                        }
+                    });
+                }
             }
         }
     });
@@ -491,6 +628,7 @@ function renderMedicines(container) {
 }
 
 // ==================== [REFACTOR] หน้าสแกนรองรับ MULTI-ITEMS + SEARCH ====================
+// ฟังก์ชันวาดหน้าสแกน (พร้อมระบบ Live Search Dropdown)
 function renderScanPage(container) {
     var iosMedHtml = '<div style="text-align:center;margin:20px 0">' +
         '<label for="iosMedInput" class="btn-primary" style="display:inline-block;cursor:pointer;padding:12px 24px;border-radius:12px">' +
@@ -511,20 +649,27 @@ function renderScanPage(container) {
         '<button class="btn-back" onclick="window.goToPage(\'dashboard\')"><i class="fa-solid fa-arrow-left"></i> กลับ</button></div>' +
         '<div class="page-content"><div class="scan-mode-toggle">' +
         '<button class="mode-btn active" onclick="window.switchScanMode(\'camera\')"><i class="fa-solid fa-camera"></i> กล้อง</button>' +
-        '<button class="mode-btn" onclick="window.switchScanMode(\'manual\')"><i class="fa-solid fa-keyboard"></i> พิมพ์ชื่อค้นหา</button></div>' +
+        '<button class="mode-btn" onclick="window.switchScanMode(\'manual\')"><i class="fa-solid fa-keyboard"></i> พิมพ์ค้นหา</button></div>' +
         '<div id="cameraMode" class="scan-mode active">' + (supportsLiveCamera ? webMedHtml : iosMedHtml) + '</div>' +
-        '<div id="manualMode" class="scan-mode" style="display:none"><div class="form-group"><label>ป้อนชื่อผู้ป่วยเพื่อค้นหา</label>' +
-        '<input type="text" id="medicineCodeInput" placeholder="พิมพ์ชื่อ-นามสกุล"></div>' +
-        '<button class="btn-primary" onclick="window.searchByCode()"><i class="fa-solid fa-magnifying-glass"></i> ค้นหา</button></div>' +
+        
+        // 🔥 [อัปเกรด] โซนพิมพ์ค้นหา เปลี่ยนเป็นระบบ Live Search + Dropdown
+        '<div id="manualMode" class="scan-mode" style="display:none">' +
+        '<div style="margin-bottom: 8px; font-size: 14px; font-weight: 700; color: #334155;">ป้อนชื่อผู้ป่วย หรือ เลขเตียง เพื่อค้นหา:</div>' +
+        '<div style="position: relative; width: 100%;">' +
+        '  <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 16px; top: 16px; color: #94a3b8;"></i>' +
+        '  <input type="text" id="manualScanInput" onkeyup="window.handleManualScanSearch()" autocomplete="off" placeholder="เช่น 1102 หรือ สมหญิง..." style="width: 100%; padding: 14px 14px 14px 44px; border-radius: 12px; border: 2px solid #cbd5e1; font-family: inherit; font-size: 15px; outline: none; box-sizing: border-box; transition: 0.2s;" onfocus="this.style.borderColor=\'#5e3db5\'" onblur="this.style.borderColor=\'#cbd5e1\'">' +
+        '  <div id="manualScanDropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 2px solid #5e3db5; border-radius: 12px; margin-top: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); max-height: 250px; overflow-y: auto; z-index: 9999;"></div>' +
+        '</div></div>' +
+        
         '<div id="scanResult" class="info-box" style="display:none;margin-top:20px"></div>' +
         '</div></div>' +
         
+        // ------------------ โซน Modal จ่ายยา ------------------
         '<div id="scanModalOverlay" style="position:fixed;inset:0;background:rgba(46,37,66,0.55);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;z-index:9999;padding:20px">' +
         '<div class="form-section" id="recordForm" style="background:#fff;border-radius:24px;border-top:6px solid var(--c-primary);box-shadow:0 25px 60px rgba(46,37,66,0.4);padding:30px 25px;max-width:500px;width:100%;margin:0;max-height:90vh;overflow-y:auto">' +
         '<h2 style="margin-top:0;margin-bottom:16px;color:#1e293b;border-bottom:2px solid #f1f5f9;padding-bottom:10px"><i class="fa-solid fa-clipboard-check" style="color:#10b981"></i> ยืนยันการจ่ายเวชภัณฑ์</h2>' +
         '<div class="form-group"><label style="font-weight:600">ผู้ป่วยที่ระบุ (เตียง)</label><input type="text" id="recordPatientDisplay" style="background:#f8fafc;font-weight:700;color:#5e3db5" readonly></div>' +
         
-        // 🔥 [เพิ่มใหม่] ช่องเลือกเวรปฏิบัติงานประจำผลัด
         '<div class="form-group"><label style="font-weight:600"><i class="fa-solid fa-clock"></i> เวรปฏิบัติงาน</label>' +
         '<select id="recordShiftDisplay" style="width:100%;padding:10px;border-radius:10px;border:2px solid #cbd5e1;font-weight:600;color:#334155;font-family:inherit;">' +
         '<option value="เช้า">เวรเช้า (08:00 - 16:00)</option>' +
@@ -545,7 +690,13 @@ function renderScanPage(container) {
         '</div></div></div>';
 
     if (supportsLiveCamera) {
-        setTimeout(function() { startScanning(); }, 200);
+        setTimeout(function() { 
+            if (window.skipAutoCamera) {
+                window.skipAutoCamera = false; 
+            } else {
+                startScanning(); 
+            }
+        }, 200);
     }
 }
 
@@ -794,12 +945,15 @@ function promptRestock(id, name, unit) {
 }
 
 function renderRecords(container) {
-    // วนลูปสร้างการ์ดข้อมูลจากตัวแปร serverRecords (ที่เก็บไว้แค่ 10 ใบ)
     var items = serverRecords.map(function(r) {
         var itemCount = r.items ? r.items.length : 1;
+        // 🔥 ถ้าบิลถูกยกเลิก ให้โชว์ป้ายสีแดงและทำสีการ์ดให้จางลง
+        var isVoided = r.voided === true;
+        var voidStyle = isVoided ? 'opacity:0.6; filter:grayscale(100%); border-left:5px solid #94a3b8;' : 'border-left:5px solid #5e3db5;';
+        var voidBadge = isVoided ? '<span style="background:#fee2e2;color:#ef4444;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;margin-left:10px;"><i class="fa-solid fa-ban"></i> ถูกยกเลิก</span>' : '';
 
-        return '<div class="record-card" style="margin-bottom:15px; background:#fff; padding:18px; border-radius:16px; box-shadow:0 4px 12px rgba(0,0,0,0.03); border-left:5px solid #5e3db5">' +
-            '<div class="record-date" style="color:#94a3b8; font-size:12px; margin-bottom:8px"><i class="fa-regular fa-clock"></i> ' + formatTimestamp(r.createdAt) + '</div>' +
+        return '<div class="record-card" style="margin-bottom:15px; background:#fff; padding:18px; border-radius:16px; box-shadow:0 4px 12px rgba(0,0,0,0.03); ' + voidStyle + '">' +
+            '<div class="record-date" style="color:#94a3b8; font-size:12px; margin-bottom:8px"><i class="fa-regular fa-clock"></i> ' + formatTimestamp(r.createdAt) + voidBadge + '</div>' +
             '<div class="record-row" style="margin-bottom:6px"><span class="label" style="font-weight:600; color:#64748b">ผู้ป่วย:</span> <span style="font-weight:700; color:#5e3db5; font-size:1.05rem">' + escapeHtml(r.patientName) + '</span></div>' +
             '<div class="record-row" style="margin-bottom:12px"><span class="label" style="font-weight:500; color:#94a3b8; font-size:12px">บันทึกโดย:</span> <span style="font-size:13px; color:#475569">' + escapeHtml(r.performedByName || '-') + '</span></div>' +
             '<button type="button" onclick="window.viewRecordDetails(\'' + r.id + '\')" style="width:100%; padding:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; color:#5e3db5; font-weight:600; font-size:13px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition:background 0.2s">' +
@@ -809,7 +963,6 @@ function renderRecords(container) {
             '</div>';
     }).join('');
 
-    // ควบคุมการเปิดปิดปุ่ม ย้อนกลับ / ถัดไป ตามสถานะหน้าจริงบนคลาวด์
     var disablePrev = currentRecordPage === 1 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : '';
     var disableNext = !hasNextPage ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : '';
     
@@ -847,18 +1000,12 @@ async function changeRecordPage(direction) {
 }
 
 function viewRecordDetails(recordId) {
-    // 🔥 [แก้ไขจุดนี้] เปลี่ยนจาก appData.records เป็น serverRecords
     var r = serverRecords.find(function(rec) { return rec.id === recordId; });
-    if (!r) {
-        Swal.fire('ไม่พบข้อมูล', 'ไม่สามารถเปิดดูรายละเอียดเวชภัณฑ์รายการนี้ได้', 'error');
-        return;
-    }
+    if (!r) { Swal.fire('ไม่พบข้อมูล', 'ไม่สามารถเปิดดูรายละเอียดเวชภัณฑ์รายการนี้ได้', 'error'); return; }
 
-    // 2. ดึง Overlay ที่เราสร้างรอไว้
     var overlay = document.getElementById('recordModalOverlay');
     if (!overlay) return;
 
-    // 3. สร้าง List รายการยา
     var medListHtml = '';
     if (r.items && Array.isArray(r.items)) {
         medListHtml = r.items.map(function(item) {
@@ -868,41 +1015,37 @@ function viewRecordDetails(recordId) {
                    '</div>';
         }).join('');
     } else {
-        // Fallback รองรับข้อมูลแบบเก่าที่บันทึกก่อนหน้านี้
         medListHtml = '<div style="display:flex;justify-content:space-between;padding:12px 0;font-size:14.5px">' +
                       '<span style="color:#334155"><i class="fa-solid fa-pills" style="color:#8e7cc3; margin-right:8px"></i>' + escapeHtml(r.medicineName || '-') + '</span>' +
                       '<span style="font-weight:700;color:#1e293b;white-space:nowrap;margin-left:10px">x ' + (r.quantity || 0) + '</span>' +
                       '</div>';
     }
 
-    // 4. ประกอบร่าง Pop-up UI
+    // 🔥 โลจิกแสดงปุ่มลบ เฉพาะแอดมิน และเฉพาะบิลที่ยังไม่เคยโดนยกเลิก
+    var voidActionHtml = '';
+    if (r.voided) {
+        voidActionHtml = '<div style="margin-top:15px;padding:12px;background:#fef2f2;color:#ef4444;border-radius:12px;font-weight:600;text-align:center;font-size:13px;"><i class="fa-solid fa-circle-xmark"></i> บิลนี้ถูกยกเลิกแล้วโดย ' + escapeHtml(r.voidedBy || 'ผู้ดูแลระบบ') + '</div>';
+    } else if (currentUser && currentUser.admin === true) {
+        voidActionHtml = '<button type="button" onclick="window.handleVoidRecord(\'' + r.id + '\')" style="width:100%;margin-top:20px;padding:12px;background:#fee2e2;color:#dc2626;border:2px dashed #fca5a5;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer;"><i class="fa-solid fa-arrow-rotate-left"></i> ยกเลิกบิลและคืนสต็อก</button>';
+    }
+
     var modalHtml = 
         '<div style="background:#fff;border-radius:20px;box-shadow:0 25px 60px rgba(0,0,0,0.3);width:100%;max-width:400px;overflow:hidden;transform:scale(0.95);animation:modalFadeIn 0.2s forwards">' +
-        
-        // Header (สีม่วง)
-        '<div style="background:#5e3db5;padding:18px 24px;color:#fff;display:flex;justify-content:space-between;align-items:center">' +
-        '<h3 style="margin:0;font-size:16px;font-weight:600"><i class="fa-solid fa-receipt"></i> รายละเอียดการเบิก</h3>' +
+        '<div style="background:' + (r.voided ? '#94a3b8' : '#5e3db5') + ';padding:18px 24px;color:#fff;display:flex;justify-content:space-between;align-items:center">' +
+        '<h3 style="margin:0;font-size:16px;font-weight:600"><i class="fa-solid fa-receipt"></i> ' + (r.voided ? 'รายละเอียดบิล (ยกเลิก)' : 'รายละเอียดการเบิก') + '</h3>' +
         '<button type="button" onclick="document.getElementById(\'recordModalOverlay\').style.display=\'none\'" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer"><i class="fa-solid fa-xmark"></i></button>' +
         '</div>' +
-        
-        // Info Section (สรุปเวลาและผู้ป่วย)
         '<div style="padding:16px 24px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:13.5px;color:#475569">' +
-        '<div style="margin-bottom:8px"><strong>ผู้ป่วย:</strong> <span style="color:#5e3db5;font-weight:700">' + escapeHtml(r.patientName) + '</span></div>' +
+        '<div style="margin-bottom:8px"><strong>ผู้ป่วย:</strong> <span style="color:' + (r.voided ? '#64748b' : '#5e3db5') + ';font-weight:700">' + escapeHtml(r.patientName) + '</span></div>' +
         '<div><strong>เวลาที่บันทึก:</strong> ' + formatTimestamp(r.createdAt) + '</div>' +
         '</div>' +
-        
-        // List Section (รายการยา เลื่อนสกอร์ได้ถ้าเยอะ)
-        '<div style="padding:10px 24px 24px 24px;max-height:50vh;overflow-y:auto">' + medListHtml + '</div>' +
+        '<div style="padding:10px 24px 24px 24px;max-height:50vh;overflow-y:auto">' + medListHtml + voidActionHtml + '</div>' +
         '</div>' +
-        
-        // Animation
         '<style>@keyframes modalFadeIn { to { transform:scale(1); opacity:1; } }</style>';
 
-    // 5. นำไปแสดงผล
     overlay.innerHTML = modalHtml;
     overlay.style.display = 'flex';
     
-    // ดักจับการคลิกพื้นหลัง (พื้นที่สีดำ) เพื่อปิด Pop-up
     overlay.onclick = function(e) {
         if(e.target === overlay) overlay.style.display = 'none';
     };
@@ -1062,7 +1205,7 @@ async function exportRecordsWithFilter() {
 
     Swal.fire({ 
         title: 'กำลังประมวลผลตาราง Excel...', 
-        text: 'ระบบกำลังยุบยอดรวมยาซ้ำและจัดดีไซน์หน้าตาราง โปรดรอสักครู่', 
+        text: 'ระบบกำลังจัดกลุ่มประวัติยาให้วิ่งตามเตียงล่าสุด โปรดรอสักครู่', 
         allowOutsideClick: false, 
         didOpen: () => Swal.showLoading() 
     });
@@ -1073,8 +1216,9 @@ async function exportRecordsWithFilter() {
     try {
         var allRecords = await getAllRecordsOnceFromFirestore();
 
-        // 1. คัดกรองข้อมูลตามเงื่อนไข
         var filteredRecords = allRecords.filter(function(r) {
+            if (r.voided) return false; 
+            
             var recordDate = typeof r.createdAt.toDate === 'function' ? r.createdAt.toDate() : new Date(r.createdAt);
             if (startDate && recordDate < startDate) return false;
             if (endDate && recordDate > endDate) return false;
@@ -1084,11 +1228,10 @@ async function exportRecordsWithFilter() {
         });
 
         if (filteredRecords.length === 0) {
-            Swal.fire({ icon: 'info', title: 'ไม่พบข้อมูล', text: 'ไม่พบข้อมูลบันทึกการใช้เวชภัณฑ์ตามเงื่อนไขที่เลือก', confirmButtonColor: '#16a34a' });
+            Swal.fire({ icon: 'info', title: 'ไม่พบข้อมูล', text: 'ไม่พบข้อมูลบันทึกตามเงื่อนไข หรือข้อมูลถูกยกเลิกไปแล้ว', confirmButtonColor: '#16a34a' });
             return;
         }
 
-        // 2. ยุบรวมข้อมูลคนไข้ที่ใช้ยาซ้ำตัวเดียวกันในเวรเดียวกัน
         var consolidatedMap = {};
 
         filteredRecords.forEach(function(r) {
@@ -1099,10 +1242,24 @@ async function exportRecordsWithFilter() {
 
             var wardStr = '-';
             var bedStr = '-';
-            var foundPatient = appData.patients.find(function(p) { return p.name === patientName; });
-            if (foundPatient) {
-                wardStr = foundPatient.ward || '-';
-                bedStr = foundPatient.bed || '-';
+
+            // 🔥 [แก้บัคที่นี่] ตามหาเตียงปัจจุบันจาก "ชื่อคนไข้" เป็นหลัก (ไม่ให้โดนทับชื่อ)
+            var currentBedDoc = null;
+            if (patientName !== '-' && patientName !== 'ว่าง') {
+                currentBedDoc = appData.patients.find(function(p) { return p.name === patientName; });
+            }
+
+            if (currentBedDoc) {
+                // ถ้ายังอยู่ในวอร์ด ให้ดึงเลขเตียงล่าสุดมาใช้เลย
+                wardStr = currentBedDoc.ward || '-';
+                bedStr = currentBedDoc.bed || '-';
+            } else {
+                // ถ้าหาชื่อไม่เจอ (เช่น Discharge ไปแล้ว) ให้ดึงเตียงล่าสุดจากตอนที่บันทึกมาโชว์ (ป้องกันชื่อกลายเป็นขีดกลาง)
+                var oldBedDoc = appData.patients.find(function(p) { return p.id === r.patientId; });
+                if (oldBedDoc) {
+                    wardStr = oldBedDoc.ward || '-';
+                    bedStr = oldBedDoc.bed || '-';
+                }
             }
 
             var recordItems = [];
@@ -1117,6 +1274,7 @@ async function exportRecordsWithFilter() {
                 var qty = item.quantity || 0;
                 var unitStr = item.unit || 'ชิ้น';
 
+                // 🔥 จับกลุ่มรวมร่างโดยใช้ "ชื่อคนไข้" เป็นกุญแจสำคัญ
                 var aggKey = patientName + '_' + shiftStr + '_' + medName;
 
                 if (consolidatedMap[aggKey]) {
@@ -1124,6 +1282,10 @@ async function exportRecordsWithFilter() {
                     if (consolidatedMap[aggKey].user.indexOf(user) === -1) {
                         consolidatedMap[aggKey].user += ', ' + user;
                     }
+                    // อัปเดตข้อมูลเตียงและเวลาให้เป็นของบิลล่าสุดเสมอ
+                    consolidatedMap[aggKey].dateStr = dateStr;
+                    consolidatedMap[aggKey].wardStr = wardStr;
+                    consolidatedMap[aggKey].bedStr = bedStr;
                 } else {
                     consolidatedMap[aggKey] = {
                         dateStr: dateStr, 
@@ -1140,57 +1302,52 @@ async function exportRecordsWithFilter() {
             });
         });
 
-        // 3. 🚀 สตาร์ทเครื่องยนต์ ExcelJS เพื่อสร้างและตกแต่งไฟล์
-        var workbook = new ExcelJS.Workbook();
-        var worksheet = workbook.addWorksheet('บันทึกการใช้เวชภัณฑ์', {
-            views: [{ showGridLines: true }] // เปิดให้โชว์เส้น Grid เสมอ
+        var consolidatedArray = [];
+        for (var key in consolidatedMap) {
+            consolidatedArray.push(consolidatedMap[key]);
+        }
+
+        consolidatedArray.sort(function(a, b) {
+            var shiftWeights = { 'เช้า': 1, 'บ่าย': 2, 'ดึก': 3 };
+            var weightA = shiftWeights[a.shiftStr] || 99;
+            var weightB = shiftWeights[b.shiftStr] || 99;
+            if (weightA !== weightB) return weightA - weightB;
+
+            // เรียงเลขเตียง
+            var bedCompare = a.bedStr.localeCompare(b.bedStr, undefined, {numeric: true, sensitivity: 'base'});
+            if (bedCompare !== 0) return bedCompare;
+
+            return a.medicineName.localeCompare(b.medicineName, 'th');
         });
 
-        // ตั้งค่าโครงสร้างคอล็มน์
+        var workbook = new ExcelJS.Workbook();
+        var worksheet = workbook.addWorksheet('บันทึกการใช้เวชภัณฑ์', { views: [{ showGridLines: true }] });
+
         worksheet.columns = [
-            { header: 'วัน-เวลา', key: 'date', width: 22 },
+            { header: 'วัน-เวลา (ล่าสุด)', key: 'date', width: 22 },
             { header: 'เวร', key: 'shift', width: 10 },
             { header: 'ชื่อผู้ป่วย', key: 'patient', width: 25 },
             { header: 'หอผู้ป่วย', key: 'ward', width: 12 },
-            { header: 'เตียง', key: 'bed', width: 10 },
+            { header: 'เตียง (ล่าสุด)', key: 'bed', width: 13 },
             { header: 'รายการเวชภัณฑ์', key: 'medicine', width: 30 },
             { header: 'จำนวนที่จ่ายรวม', key: 'quantity', width: 16 },
             { header: 'หน่วยนับ', key: 'unit', width: 12 },
             { header: 'บันทึกโดย', key: 'user', width: 22 }
         ];
 
-        // 4. 🎨 ตกแต่งแถวหัวตาราง (Header Row) ให้หล่อเท่
         var headerRow = worksheet.getRow(1);
-        headerRow.height = 28; // ปรับความสูงหัวตารางให้ดูโปร่งสบายตา
-
+        headerRow.height = 28;
         headerRow.eachCell(function(cell) {
-            // ใส่สีพื้นหลังเข้ม (สีเขียวสไตล์การแพทย์ทางการ)
-            cell.fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'FF16A34A' } 
-            };
-            // ปรับฟอนต์ให้หนา สีขาว ขนาด 11 และใช้ฟอนต์มาตรฐาน
-            cell.font = {
-                name: 'Sarabun',
-                size: 11,
-                bold: true,
-                color: { argb: 'FFFFFFFF' }
-            };
-            // จัดอักษรให้อยู่กึ่งกลางเป๊ะทั้งแนวตั้งและแนวนอน
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF16A34A' } };
+            cell.font = { name: 'Sarabun', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
             cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-            // ตีเส้นขอบบางรอบด้าน
             cell.border = {
-                top: { style: 'thin', color: { argb: 'FF15803D' } },
-                left: { style: 'thin', color: { argb: 'FF15803D' } },
-                bottom: { style: 'thin', color: { argb: 'FF15803D' } },
-                right: { style: 'thin', color: { argb: 'FF15803D' } }
+                top: { style: 'thin', color: { argb: 'FF15803D' } }, left: { style: 'thin', color: { argb: 'FF15803D' } },
+                bottom: { style: 'thin', color: { argb: 'FF15803D' } }, right: { style: 'thin', color: { argb: 'FF15803D' } }
             };
         });
 
-        // 5. นำข้อมูลจาก Map ยัดใส่ตารางทีละแถว พร้อมจัดสไตล์รายเซลล์
-        for (var key in consolidatedMap) {
-            var rowItem = consolidatedMap[key];
+        consolidatedArray.forEach(function(rowItem) {
             var newRow = worksheet.addRow({
                 date: rowItem.dateStr,
                 shift: rowItem.shiftStr,
@@ -1202,38 +1359,24 @@ async function exportRecordsWithFilter() {
                 unit: rowItem.unit,
                 user: rowItem.user
             });
-
-            newRow.height = 22; // ความสูงแถวข้อมูลปกติ
-
-            // วนลูปเซ็ตฟอนต์ การจัดวาง และเส้นขอบให้แต่ละช่องข้อมูล
+            newRow.height = 22;
             newRow.eachCell(function(cell, colNumber) {
                 cell.font = { name: 'Sarabun', size: 10 };
-                
-                // ตีเส้นขอบสีเทาอ่อนจางๆ สวยงามสไตล์มินิมอล
                 cell.border = {
-                    top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-                    left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-                    bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-                    right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+                    top: { style: 'thin', color: { argb: 'FFE2E8F0' } }, left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+                    bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } }, right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
                 };
-
-                // ลอจิกการจัดตำแหน่งข้อความ (Alignment)
                 if (colNumber === 2 || colNumber === 4 || colNumber === 5 || colNumber === 7 || colNumber === 8) {
-                    // เวร, หอ, เตียง, จำนวน, หน่วยนับ -> ให้จัดอยู่กึ่งกลาง
                     cell.alignment = { vertical: 'middle', horizontal: 'center' };
                 } else {
-                    // วันเวลา, ชื่อคนไข้, ชื่อยา, ผู้บันทึก -> ให้ชิดซ้ายปกติ
                     cell.alignment = { vertical: 'middle', horizontal: 'left' };
                 }
             });
-        }
+        });
 
-        // 6. 💾 สั่งแปลงไฟล์ข้อมูลในหน่วยความจำออกมาดาวน์โหลดลงเครื่องคนกดจริง
         var buffer = await workbook.xlsx.writeBuffer();
         var blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         
-        var startInput = document.getElementById('exportStartDate').value;
-        var endInput = document.getElementById('exportEndDate').value;
         var rangeName = 'All';
         if (startInput && endInput) rangeName = startInput + '_to_' + endInput;
         else if (startInput) rangeName = 'From_' + startInput;
@@ -1679,10 +1822,13 @@ async function showQRCode(patientName, titleName) {
 }
 
 async function printAllQRCodes() {
-    if (appData.patients.length === 0) { alert('ยังไม่มีรายการผู้ป่วย'); return; }
+    if (appData.patients.length === 0) { alert('ยังไม่มีผังเตียงในระบบ'); return; }
     try {
         var results = await Promise.all(appData.patients.map(function(p) {
-            return getQRDataURL(p.name).then(function(url) { return { code: p.name, name: p.name + ' (เตียง: ' + p.bed + ')', dataUrl: url }; });
+            // 🔥 [แก้ไขแล้ว] สร้าง QR จากเลขเตียงแทน
+            return getQRDataURL(p.bed).then(function(url) { 
+                return { code: p.bed, name: 'เตียง: ' + p.bed + ' (หอ: ' + p.ward + ')', dataUrl: url }; 
+            });
         }));
         printQRImages(results);
     } catch (err) {
@@ -1822,7 +1968,12 @@ function stopScanning() {
 
 function searchByCode(codeParam) {
     var code = codeParam || document.getElementById('medicineCodeInput').value;
-    var patient = appData.patients.find(function(p) { return p.name === code; });
+    
+    // 🔥 [แก้ไขแล้ว] ให้ระบบค้นหาเจอทั้งจาก "ชื่อคนไข้" และ "หมายเลขเตียง"
+    var patient = appData.patients.find(function(p) { 
+        return p.name === code || p.bed === code; 
+    });
+    
     var modalOverlay = document.getElementById('scanModalOverlay');
     var scanResult = document.getElementById('scanResult');
     
@@ -1830,16 +1981,15 @@ function searchByCode(codeParam) {
         currentScannedPatient = patient; 
         document.getElementById('recordPatientDisplay').value = patient.name + ' (เตียง: ' + patient.bed + ' | หอ: ' + patient.ward + ')';
         
-        // 🔥 เซ็ตเวรอัตโนมัติตามเวลาปัจจุบันของมือถือ
         var shiftSelect = document.getElementById('recordShiftDisplay');
         if (shiftSelect) {
             var currentHour = new Date().getHours();
             if (currentHour >= 8 && currentHour < 16) {
-                shiftSelect.value = 'เช้า'; // 08:00 - 15:59
+                shiftSelect.value = 'เช้า';
             } else if (currentHour >= 16 && currentHour <= 23) {
-                shiftSelect.value = 'บ่าย'; // 16:00 - 23:59
+                shiftSelect.value = 'บ่าย';
             } else {
-                shiftSelect.value = 'ดึก';  // 00:00 - 07:59
+                shiftSelect.value = 'ดึก'; 
             }
         }
         
@@ -1852,7 +2002,7 @@ function searchByCode(codeParam) {
         if (modalOverlay) modalOverlay.style.display = 'flex';
         
         if (scanResult) { 
-            scanResult.innerHTML = '<i class="fa-solid fa-circle-check"></i> ระบุตัวเตียงผู้ป่วยสำเร็จ: ' + escapeHtml(patient.name); 
+            scanResult.innerHTML = '<i class="fa-solid fa-circle-check"></i> ระบุเตียงสำเร็จ: เตียง ' + escapeHtml(patient.bed) + ' (👤 ' + escapeHtml(patient.name) + ')'; 
             scanResult.className = 'info-box success'; 
             scanResult.style.display = 'block'; 
         }
@@ -1860,7 +2010,7 @@ function searchByCode(codeParam) {
         currentScannedPatient = null;
         if (modalOverlay) modalOverlay.style.display = 'none';
         if (scanResult) { 
-            scanResult.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> ไม่พบข้อมูลผู้ป่วยที่ใช้ชื่อนี้: ' + escapeHtml(code); 
+            scanResult.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> ไม่พบข้อมูลผังเตียง หรือชื่อผู้ป่วยนี้: ' + escapeHtml(code); 
             scanResult.className = 'info-box error'; 
             scanResult.style.display = 'block'; 
         }
@@ -1915,6 +2065,7 @@ async function submitMultiRecords() {
 
     try {
         await submitRecordDoc({
+            patientId: currentScannedPatient.id,
             patientName: currentScannedPatient.name, 
             performedByUid: currentUser.uid, 
             performedByName: currentUser.name,
@@ -1952,8 +2103,16 @@ function cancelRecord() {
     var input = document.getElementById('medicineCodeInput');
     if (input) input.value = '';
     currentScannedPatient = null;
-    if (supportsLiveCamera && !videoStream) {
-        startScanning();
+    
+    // 🔥 [เพิ่มใหม่] เช็คป้ายความจำ: ถ้ามาจากหน้าจัดการผู้ป่วย ให้พากลับไปหน้าเดิม!
+    if (window.returnToPatients) {
+        window.returnToPatients = false; // เคลียร์ค่าทิ้ง
+        window.goToPage('patients');
+    } else {
+        // ถ้ามาจากการกดเมนู "สแกน QR เตียง" ปกติ ค่อยเปิดกล้องให้สแกนเตียงต่อไป
+        if (supportsLiveCamera && !videoStream) {
+            startScanning();
+        }
     }
 }
 
@@ -2159,6 +2318,281 @@ async function loadRecordsFromServer() {
     }
 }
 
+async function handleVoidRecord(recordId) {
+    // 🔥 [แก้ตรงนี้] สั่งปิด Modal รายละเอียดการเบิกทิ้งไปทันที เพื่อไม่ให้บังหน้าต่างยืนยัน
+    var overlay = document.getElementById('recordModalOverlay');
+    if (overlay) overlay.style.display = 'none';
+
+    Swal.fire({
+        title: 'ยืนยันการยกเลิกบิล?',
+        html: 'ระบบจะดึงเวชภัณฑ์ทั้งหมดในบิลนี้<br><b style="color:#10b981;">คืนกลับเข้าสู่สต็อกคงคลังอัตโนมัติ</b><br><span style="font-size:13px;color:#ef4444;">(การกระทำนี้ไม่สามารถย้อนกลับได้)</span>',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#94a3b8',
+        confirmButtonText: '<i class="fa-solid fa-arrow-rotate-left"></i> ยืนยันยกเลิกและคืนของ',
+        cancelButtonText: 'ปิดหน้าต่าง'
+    }).then(async (result) => {
+        if (result.isConfirmed) {
+            try {
+                Swal.fire({ title: 'กำลังคืนสต็อก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                
+                await voidRecordDoc(recordId, currentUser.name); // เรียกหลังบ้าน
+                
+                Toast.fire({ icon: 'success', title: 'ยกเลิกบิลและคืนสต็อกสำเร็จ' });
+                
+                // โหลดข้อมูลประวัติใหม่เพื่อให้อัปเดต UI ทันที
+                await loadRecordsFromServer();
+                renderApp();
+            } catch (err) {
+                Swal.fire('เกิดข้อผิดพลาด', err.message, 'error');
+            }
+        }
+    });
+}
+
+window.toggleBedDropdown = function() {
+    var body = document.getElementById('swal-dd-body');
+    var icon = document.getElementById('swal-dd-icon');
+    var header = document.getElementById('swal-dd-header');
+    
+    if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.style.transform = 'rotate(180deg)';
+        header.style.borderColor = '#5e3db5';
+        // Auto-focus ให้พิมพ์ได้เลยทันทีที่กางออก (สำหรับคอม)
+        setTimeout(() => document.getElementById('swal-bed-search').focus(), 100);
+    } else {
+        body.style.display = 'none';
+        icon.style.transform = 'rotate(0deg)';
+        header.style.borderColor = '#cbd5e1';
+    }
+};
+
+// ฟังก์ชันสำหรับพิมพ์ค้นหาเตียงหรือชื่อแบบ Real-time
+window.filterBedOptions = function() {
+    var keyword = document.getElementById('swal-bed-search').value.toLowerCase().trim();
+    var items = document.querySelectorAll('.swal-bed-item');
+    items.forEach(function(item) {
+        var text = item.getAttribute('data-text'); // ค้นหาจากที่ซ่อนไว้ (เจอทั้งเลขเตียงและชื่อคนไข้)
+        item.style.display = text.includes(keyword) ? 'flex' : 'none';
+    });
+};
+
+// ฟังก์ชันเมื่อคลิกเลือกเตียงใน Dropdown ให้หุบเก็บอัตโนมัติ
+window.selectBedOption = function(id, label) {
+    document.getElementById('swal-move-target-id').value = id;
+    document.getElementById('swal-dd-text').innerHTML = label + ' <span style="color:#16a34a; font-size:12px; font-weight:700; margin-left:6px;"><i class="fa-solid fa-circle-check"></i> เลือกแล้ว</span>';
+    
+    // หุบ Dropdown ทันทีที่เลือกเสร็จ
+    window.toggleBedDropdown();
+    
+    // ล้างสีไฮไลท์อันเก่าทิ้งให้หมด
+    document.querySelectorAll('.swal-bed-item').forEach(function(item) {
+        item.style.background = '#fff';
+        item.style.borderLeft = '4px solid transparent';
+    });
+    
+    // ใส่สีเขียวไฮไลท์ตัวที่เพิ่งกดเลือก (เผื่อกดกางมาดูอีกรอบ)
+    var selected = document.getElementById('bed-opt-' + id);
+    if(selected) {
+        selected.style.background = '#f0fdf4';
+        selected.style.borderLeft = '4px solid #16a34a';
+    }
+};
+
+// ==================== PWA AUTO INSTALL (เด้งเตือนให้ติดตั้งแอปอัตโนมัติ) ====================
+let deferredPrompt;
+
+// 1. ระบบดักจับสำหรับเครื่อง Android (Chrome)
+window.addEventListener('beforeinstallprompt', (e) => {
+    // ป้องกันไม่ให้แถบติดตั้งของ Chrome เด้งขึ้นมาแบบรกๆ ด้านล่าง (เราจะใช้ SweetAlert ของเราเอง)
+    e.preventDefault();
+    deferredPrompt = e;
+
+    // เช็คว่าเคยเด้งถามไปแล้วหรือยัง จะได้ไม่รบกวนการทำงานถ้าเขาไม่อยากติดตั้ง
+    if (!localStorage.getItem('pwaPrompted')) {
+        // หน่วงเวลา 2 วินาทีหลังจากโหลดเว็บ ค่อยเด้งขึ้นมา
+        setTimeout(() => {
+            Swal.fire({
+                title: '📱 ติดตั้งแอป Lean Ward',
+                html: 'เพิ่มแอปนี้ลงในหน้าจอมือถือของคุณเพื่อการใช้งานที่รวดเร็ว<br><span style="font-size:13px; color:#ef4444;">(ไม่ต้องพิมพ์เข้าเว็บผ่านเบราว์เซอร์อีกต่อไป)</span>',
+                icon: 'info',
+                showCancelButton: true,
+                confirmButtonColor: '#10b981',
+                cancelButtonColor: '#94a3b8',
+                confirmButtonText: '<i class="fa-solid fa-download"></i> ติดตั้งแอปเลย',
+                cancelButtonText: 'ไว้คราวหลัง'
+            }).then((result) => {
+                if (result.isConfirmed && deferredPrompt) {
+                    // เรียกหน้าต่างติดตั้งของระบบขึ้นมาทำงาน
+                    deferredPrompt.prompt();
+                    deferredPrompt.userChoice.then(() => { 
+                        deferredPrompt = null; 
+                    });
+                    localStorage.setItem('pwaPrompted', 'true');
+                } else {
+                    // ถ้าพยาบาลกด "ไว้คราวหลัง" ก็จำไว้ จะได้ไม่เด้งกวนใจอีก
+                    localStorage.setItem('pwaPrompted', 'true');
+                }
+            });
+        }, 2000);
+    }
+});
+
+// 2. ระบบดักจับสำหรับเครื่อง iPhone / iPad (iOS)
+window.addEventListener('load', () => {
+    const isIos = /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+    const isInStandaloneMode = ('standalone' in window.navigator) && (window.navigator.standalone);
+
+    // ถ้าเข้าด้วย iPhone และยังไม่ได้รันแบบเต็มจอ (แปลว่ายังไม่ได้ติดตั้งเป็นแอป)
+    if (isIos && !isInStandaloneMode && !localStorage.getItem('iosPrompted')) {
+        setTimeout(() => {
+            Swal.fire({
+                title: '📱 สำหรับผู้ใช้ iPhone / iPad',
+                html: '<div style="text-align:left; font-size:14px; line-height:1.6;">' +
+                      'Apple ไม่อนุญาตให้ติดตั้งอัตโนมัติ แต่คุณทำเองได้ง่ายๆ:<br><br>' +
+                      '1️⃣ กดปุ่ม <b>แชร์ (Share)</b> <i class="fa-solid fa-arrow-up-from-bracket"></i> ที่ขอบจอด้านล่าง<br>' +
+                      '2️⃣ เลื่อนลงมาเลือก <b>"เพิ่มไปยังหน้าจอโฮม"</b><br> <span style="color:#64748b; margin-left:24px;">(Add to Home Screen)</span><br>' +
+                      '3️⃣ กด <b>เพิ่ม (Add)</b> ที่มุมขวาบน' +
+                      '</div>',
+                icon: 'info',
+                confirmButtonColor: '#5e3db5',
+                confirmButtonText: 'รับทราบ & เข้าใจแล้ว'
+            }).then(() => {
+                localStorage.setItem('iosPrompted', 'true'); // จำไว้ว่าสอนแล้ว จะได้ไม่เด้งซ้ำ
+            });
+        }, 2000);
+    }
+});
+
+// 2. ฟังก์ชันทางลัด: กดปุ่มจ่ายยาที่ผังเตียง -> กระโดดไปหน้าจ่ายยาโดยไม่เปิดกล้อง
+window.goToDispense = async function(bedNumber) {
+    Swal.fire({ title: 'กำลังเตรียมหน้าต่างจ่ายยา...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    
+    // 1. แอบส่งซิกบอกหน้า Scan ว่า "ไม่ต้องเปิดกล้องนะ!"
+    window.skipAutoCamera = true;
+    
+    // 🔥 2. [เพิ่มใหม่] ฝังป้ายความจำไว้ว่า "เรามาจากหน้าจัดการผู้ป่วยนะ"
+    window.returnToPatients = true; 
+    
+    // 3. เปลี่ยนหน้าไปหน้า Scan
+    await window.goToPage('scan');
+    
+    // 4. ปรับ UI หน้าจอข้างหลังให้เป็น "โหมดพิมพ์ค้นหา"
+    window.switchScanMode('manual');
+    
+    // 5. เรียกข้อมูลเตียงและเปิด Modal จ่ายยาทันที
+    window.searchByCode(bedNumber);
+    
+    Swal.close();
+};
+
+// 1. ฟังก์ชันกรองการ์ดเตียงแบบ Real-time
+window.filterPatientCards = function() {
+    var inputEl = document.getElementById('patientSearchInput');
+    var selectEl = document.getElementById('patientStatusFilter');
+    if (!inputEl || !selectEl) return;
+    
+    var keyword = inputEl.value.toLowerCase().trim();
+    var statusFilter = selectEl.value; // ค่าจะเป็น: 'all', 'occupied', 'vacant'
+    var cards = document.querySelectorAll('.bed-card');
+    
+    cards.forEach(function(card) {
+        var text = card.getAttribute('data-search') || '';
+        var status = card.getAttribute('data-status') || '';
+        
+        // เช็ค 2 เงื่อนไข: 1. พิมพ์คำค้นหาตรงไหม? และ 2. เลือกสถานะตรงไหม?
+        var matchKeyword = text.includes(keyword);
+        var matchStatus = (statusFilter === 'all') || (status === statusFilter);
+        
+        if (matchKeyword && matchStatus) {
+            card.style.display = 'flex'; // โชว์การ์ด
+        } else {
+            card.style.display = 'none'; // ซ่อนการ์ด
+        }
+    });
+};
+
+// 2. ฟังก์ชันทางลัด: กดปุ่มจ่ายยาที่ผังเตียง -> กระโดดไปหน้าจ่ายยาโดยไม่เปิดกล้อง
+window.goToDispense = async function(bedNumber) {
+    Swal.fire({ title: 'กำลังเตรียมหน้าต่างจ่ายยา...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    
+    window.skipAutoCamera = true;
+    window.returnToPatients = true; 
+    
+    await window.goToPage('scan');
+    window.switchScanMode('manual');
+    window.searchByCode(bedNumber);
+    
+    Swal.close();
+};
+
+// 1. ฟังก์ชันจับตาการพิมพ์และแสดง Dropdown
+window.handleManualScanSearch = function() {
+    var inputEl = document.getElementById('manualScanInput');
+    var dropdownEl = document.getElementById('manualScanDropdown');
+    if (!inputEl || !dropdownEl) return;
+
+    var keyword = inputEl.value.toLowerCase().trim();
+    dropdownEl.innerHTML = ''; 
+
+    if (keyword.length === 0) {
+        dropdownEl.style.display = 'none';
+        return;
+    }
+
+    var matched = appData.patients.filter(function(p) {
+        var isVacant = !p.name || p.name === '-' || p.name === 'ว่าง';
+        if (isVacant) return false; 
+        
+        var textToSearch = (p.bed + ' ' + p.name).toLowerCase();
+        return textToSearch.includes(keyword);
+    });
+
+    if (matched.length === 0) {
+        dropdownEl.innerHTML = '<div style="padding: 14px; color: #ef4444; text-align: center; font-size: 14px; font-weight: 600;"><i class="fa-solid fa-circle-xmark"></i> ไม่พบรายชื่อ หรือ เตียงนี้อาจว่างอยู่</div>';
+        dropdownEl.style.display = 'block';
+        return;
+    }
+
+    var html = matched.map(function(p) {
+        return '<div onclick="window.selectManualScan(\'' + p.bed + '\')" style="padding: 14px 16px; border-bottom: 1px solid #e2e8f0; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: background 0.2s;" onmouseover="this.style.background=\'#f8fafc\'" onmouseout="this.style.background=\'#fff\'">' +
+               '<div>' +
+               '<div style="font-weight: 700; color: #1e293b; font-size: 15.5px;">👤 ' + escapeHtml(p.name) + '</div>' +
+               '<div style="font-size: 13px; color: #64748b; margin-top: 4px;"><i class="fa-solid fa-bed"></i> เตียง ' + escapeHtml(p.bed) + ' | วอร์ด: ' + escapeHtml(p.ward) + '</div>' +
+               '</div>' +
+               '<div style="background: #5e3db5; color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 700; box-shadow: 0 2px 4px rgba(94,61,181,0.2);"><i class="fa-solid fa-pills"></i> จ่ายยา</div>' +
+               '</div>';
+    }).join('');
+
+    dropdownEl.innerHTML = html;
+    dropdownEl.style.display = 'block';
+};
+
+// 2. ฟังก์ชันเมื่อพยาบาลคลิกเลือกชื่อจาก Dropdown
+window.selectManualScan = function(bedNumber) {
+    var inputEl = document.getElementById('manualScanInput');
+    var dropdownEl = document.getElementById('manualScanDropdown');
+    
+    if (inputEl) inputEl.value = ''; 
+    if (dropdownEl) dropdownEl.style.display = 'none'; 
+    
+    // สั่งเปิดหน้าต่างจ่ายยาของเตียงนั้นทันที
+    window.searchByCode(bedNumber);
+};
+
+// 3. ฟังก์ชันเสริม: ถ้าเผลอกดพื้นที่ว่างข้างนอก ให้ซ่อน Dropdown
+document.addEventListener('click', function(event) {
+    var inputEl = document.getElementById('manualScanInput');
+    var dropdownEl = document.getElementById('manualScanDropdown');
+    if (inputEl && dropdownEl) {
+        if (!inputEl.contains(event.target) && !dropdownEl.contains(event.target)) {
+            dropdownEl.style.display = 'none';
+        }
+    }
+});
+
 // ผูกฟังก์ชัน Global ตัวเสริมเข้าสู่ Window Object
 window.addMedicineRow = addMedicineRow;
 window.filterMedicineOptions = filterMedicineOptions;
@@ -2166,7 +2600,6 @@ window.submitMultiRecords = submitMultiRecords;
 window.openSearchSug = openSearchSug;
 window.filterSearchSug = filterSearchSug;
 window.selectSugItem = selectSugItem;
-
 window.toggleSidebar = toggleSidebar;
 window.goToPage = goToPage;
 window.handleLogout = handleLogout;
@@ -2192,7 +2625,7 @@ window.exportRecordsToExcel = exportRecordsToExcel;
 window.openExportModal = openExportModal;
 window.exportRecordsWithFilter = exportRecordsWithFilter;
 window.promptRestock = promptRestock;
-window.promptEditPatient = promptEditPatient;
+window.promptMoveBed = promptMoveBed;
 window.clearMedicineInput = clearMedicineInput;
 window.showBarcode = showBarcode;
 window.startBarcodeScanner = startBarcodeScanner;
@@ -2200,3 +2633,4 @@ window.stopBarcodeScanner = stopBarcodeScanner;
 window.scanMedicineForRow = scanMedicineForRow;
 window.handleChangeMyPassword = handleChangeMyPassword;
 window.changeRecordPage = changeRecordPage;
+window.handleVoidRecord = handleVoidRecord;
