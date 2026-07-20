@@ -105,6 +105,11 @@ function startDataListeners() {
     unsubscribeInventory = listenInventory(function(list) {
         appData.inventory = list;
         if (currentPage === 'medicines' || currentPage === 'inventory' || currentPage === 'scan' || currentPage === 'dashboard') renderApp();
+        
+        // โยนหน้าที่ให้ฟังก์ชันจัดการตัวเอง มันจะเช็คเองว่าเวรนี้ควรเด้งไหม
+        if (appData.inventory.length > 0) {
+            window.checkLowStockAlert();
+        }
     });
     
     // 🔥 [แก้ไขจุดนี้] เอาเงื่อนไข if (admin) ออก เพื่อให้พยาบาลทุกคนสามารถโหลดรายชื่อพนักงานไปใช้ใน Dropdown ตอน Export ได้
@@ -671,10 +676,10 @@ function renderScanPage(container) {
         '<div class="form-group"><label style="font-weight:600">ผู้ป่วยที่ระบุ (เตียง)</label><input type="text" id="recordPatientDisplay" style="background:#f8fafc;font-weight:700;color:#5e3db5" readonly></div>' +
         
         '<div class="form-group"><label style="font-weight:600"><i class="fa-solid fa-clock"></i> เวรปฏิบัติงาน</label>' +
-        '<select id="recordShiftDisplay" style="width:100%;padding:10px;border-radius:10px;border:2px solid #cbd5e1;font-weight:600;color:#334155;font-family:inherit;">' +
-        '<option value="เช้า">เวรเช้า (08:00 - 16:00)</option>' +
-        '<option value="บ่าย">เวรบ่าย (16:00 - 24:00)</option>' +
-        '<option value="ดึก">เวรดึก (24:00 - 08:00)</option>' +
+        '<select id="recordShiftDisplay" onchange="window.lastSelectedShift = this.value" style="width:100%;padding:10px;border-radius:10px;border:2px solid #cbd5e1;font-weight:600;color:#334155;font-family:inherit;">' +
+        '<option value="เช้า">เวรเช้า</option>' +
+        '<option value="บ่าย">เวรบ่าย</option>' +
+        '<option value="ดึก">เวรดึก</option>' +
         '</select></div>' +
         
         '<div style="margin-top:15px;margin-bottom:8px;font-weight:700;color:#334155;font-size:0.95rem;display:flex;justify-content:space-between;align-items:center">' +
@@ -760,7 +765,7 @@ function addMedicineRow() {
         '<input type="number" class="med-qty-field" min="1" value="1" style="width:100%;padding:12px;border-radius:10px;border:2px solid #cbd5e1;box-sizing:border-box" required>' +
         '</div>';
 
-    container.appendChild(rowHtml);
+    container.prepend(rowHtml);
 }
 
 // ✅ [เพิ่มตามคำขอ] ฟังก์ชันทำงานล้างค่าข้อมูลและการจัดเลเยอร์ให้กลับเป็นปกติเมื่อคลิกปุ่ม X
@@ -1167,9 +1172,9 @@ function openExportModal() {
         '    <label style="font-size:0.85rem;color:#64748b;font-weight:600;display:block;margin-bottom:6px">เลือกเวรปฏิบัติงาน</label>' +
         '    <select id="exportShiftName" style="width:100%;padding:10px;border-radius:10px;border:2px solid #cbd5e1;font-family:inherit;box-sizing:border-box">' +
         '      <option value="">-- ทุกเวร --</option>' +
-        '      <option value="เช้า">เวรเช้า (08:00 - 16:00)</option>' +
-        '      <option value="บ่าย">เวรบ่าย (16:00 - 24:00)</option>' +
-        '      <option value="ดึก">เวรดึก (24:00 - 08:00)</option>' +
+        '      <option value="เช้า">เวรเช้า </option>' +
+        '      <option value="บ่าย">เวรบ่าย </option>' +
+        '      <option value="ดึก">เวรดึก </option>' +
         '    </select>' +
         '  </div>' +
         
@@ -1232,6 +1237,10 @@ async function exportRecordsWithFilter() {
             return;
         }
 
+        // 🔥 [แก้บัคเวลา 23:19 หาย] กลับด้าน Array เพื่อให้ข้อมูลเก่าถูกประมวลผลก่อน 
+        // และข้อมูลใหม่สุด (เช่น 5 ทุ่ม) จะถูกประมวลผลทีหลังแล้วไปทับเวลาล่าสุดได้อย่างถูกต้อง!
+        filteredRecords.reverse();
+
         var consolidatedMap = {};
 
         filteredRecords.forEach(function(r) {
@@ -1243,18 +1252,15 @@ async function exportRecordsWithFilter() {
             var wardStr = '-';
             var bedStr = '-';
 
-            // 🔥 [แก้บัคที่นี่] ตามหาเตียงปัจจุบันจาก "ชื่อคนไข้" เป็นหลัก (ไม่ให้โดนทับชื่อ)
             var currentBedDoc = null;
             if (patientName !== '-' && patientName !== 'ว่าง') {
                 currentBedDoc = appData.patients.find(function(p) { return p.name === patientName; });
             }
 
             if (currentBedDoc) {
-                // ถ้ายังอยู่ในวอร์ด ให้ดึงเลขเตียงล่าสุดมาใช้เลย
                 wardStr = currentBedDoc.ward || '-';
                 bedStr = currentBedDoc.bed || '-';
             } else {
-                // ถ้าหาชื่อไม่เจอ (เช่น Discharge ไปแล้ว) ให้ดึงเตียงล่าสุดจากตอนที่บันทึกมาโชว์ (ป้องกันชื่อกลายเป็นขีดกลาง)
                 var oldBedDoc = appData.patients.find(function(p) { return p.id === r.patientId; });
                 if (oldBedDoc) {
                     wardStr = oldBedDoc.ward || '-';
@@ -1274,7 +1280,6 @@ async function exportRecordsWithFilter() {
                 var qty = item.quantity || 0;
                 var unitStr = item.unit || 'ชิ้น';
 
-                // 🔥 จับกลุ่มรวมร่างโดยใช้ "ชื่อคนไข้" เป็นกุญแจสำคัญ
                 var aggKey = patientName + '_' + shiftStr + '_' + medName;
 
                 if (consolidatedMap[aggKey]) {
@@ -1313,7 +1318,6 @@ async function exportRecordsWithFilter() {
             var weightB = shiftWeights[b.shiftStr] || 99;
             if (weightA !== weightB) return weightA - weightB;
 
-            // เรียงเลขเตียง
             var bedCompare = a.bedStr.localeCompare(b.bedStr, undefined, {numeric: true, sensitivity: 'base'});
             if (bedCompare !== 0) return bedCompare;
 
@@ -1983,13 +1987,19 @@ function searchByCode(codeParam) {
         
         var shiftSelect = document.getElementById('recordShiftDisplay');
         if (shiftSelect) {
-            var currentHour = new Date().getHours();
-            if (currentHour >= 8 && currentHour < 16) {
-                shiftSelect.value = 'เช้า';
-            } else if (currentHour >= 16 && currentHour <= 23) {
-                shiftSelect.value = 'บ่าย';
+            // ถ้าเคยเลือกเวรไปแล้ว ให้จำค่าเดิมไว้ ไม่ต้องเปลี่ยนตามเวลาปัจจุบัน
+            if (window.lastSelectedShift) {
+                shiftSelect.value = window.lastSelectedShift;
             } else {
-                shiftSelect.value = 'ดึก'; 
+                // ถ้าเพิ่งเปิดเข้ามาครั้งแรก ค่อยจับเวลาปัจจุบันเป็นค่าเริ่มต้น
+                var currentHour = new Date().getHours();
+                if (currentHour >= 8 && currentHour < 16) {
+                    shiftSelect.value = 'เช้า';
+                } else if (currentHour >= 16 && currentHour <= 23) {
+                    shiftSelect.value = 'บ่าย';
+                } else {
+                    shiftSelect.value = 'ดึก'; 
+                }
             }
         }
         
@@ -2260,11 +2270,11 @@ async function handleChangeMyPassword() {
             var p1 = document.getElementById('swal-mypwd-1').value;
             var p2 = document.getElementById('swal-mypwd-2').value;
             if (!p1 || p1.length < 6) {
-                Swal.showValidationMessage('⚠️ รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษรครับ');
+                Swal.showValidationMessage('⚠️ รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
                 return false;
             }
             if (p1 !== p2) {
-                Swal.showValidationMessage('⚠️ รหัสผ่านทั้งสองช่องไม่ตรงกัน กรุณาพิมพ์ใหม่');
+                Swal.showValidationMessage('⚠️ รหัสผ่านทั้งสองช่องไม่ตรงกัน');
                 return false;
             }
             return p1;
@@ -2590,6 +2600,186 @@ document.addEventListener('click', function(event) {
         if (!inputEl.contains(event.target) && !dropdownEl.contains(event.target)) {
             dropdownEl.style.display = 'none';
         }
+    }
+});
+
+
+// ==================== ระบบแจ้งเตือนเวชภัณฑ์ใกล้หมด (อัปเกรดมีปุ่มเติมสต็อก) ====================
+window.alertedLowStockIds = window.alertedLowStockIds || []; // หน่วยความจำเก็บ ID ยาที่เตือนไปแล้ว
+
+window.checkLowStockAlert = function() {
+    if (!appData.inventory || appData.inventory.length === 0) return;
+
+    // 1. กรองหายาที่สต็อกปัจจุบัน ต่ำกว่าหรือเท่ากับจุดสั่งซื้อ
+    var lowStockItems = appData.inventory.filter(function(item) {
+        return item.stock <= item.reorder;
+    });
+
+    // 2. อัปเดตความจำ: ถ้ายาตัวไหนถูก "เติมสต็อก" จนรอดพ้นขีดอันตรายแล้ว ให้ลืม ID นั้นทิ้งไป (เผื่ออนาคตหมดอีกจะได้เตือนใหม่)
+    window.alertedLowStockIds = window.alertedLowStockIds.filter(function(alertedId) {
+        return lowStockItems.some(function(item) { return item.id === alertedId; });
+    });
+
+    // 3. หายาที่ "เพิ่งจะตกเกณฑ์สดๆ ร้อนๆ" และยังไม่ได้เด้งเตือน
+    var unalertedItems = lowStockItems.filter(function(item) {
+        return !window.alertedLowStockIds.includes(item.id);
+    });
+
+    // 4. ถ้ามีของที่เพิ่งหมดใหม่ (หรือเพิ่งเปิดแอปครั้งแรก) ค่อยเด้ง Modal
+    if (unalertedItems.length > 0) {
+        var itemListHtml = lowStockItems.map(function(item) {
+            var isZero = item.stock === 0;
+            var stockColor = isZero ? '#ef4444' : '#f59e0b'; 
+            var stockBg = isZero ? '#fef2f2' : '#fffbeb';
+            var stockText = isZero ? 'หมดแล้ว!' : 'เหลือ ' + item.stock + ' ' + escapeHtml(item.unit);
+
+            return '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:14px 12px; border-bottom:1px solid #e2e8f0;">' +
+                   '<div style="flex:1; font-weight:600; color:#334155; text-align:left; font-size:14px; line-height:1.4; word-break:break-word;">' + escapeHtml(item.name) + '</div>' +
+                   '<div style="flex-shrink:0; white-space:nowrap; color:' + stockColor + '; background:' + stockBg + '; font-weight:700; padding:4px 10px; border-radius:8px; font-size:13px; margin-top:2px;">' + stockText + '</div>' +
+                   '</div>';
+        }).join('');
+
+        Swal.fire({
+            title: '<div style="color:#ef4444; font-size:28px; margin-bottom:5px;"><i class="fa-solid fa-triangle-exclamation"></i></div><span style="font-size:18px;">แจ้งเตือนเวชภัณฑ์ใกล้หมด!</span>',
+            html: '<div style="margin-bottom:12px; font-size:13.5px; color:#64748b;">ขณะนี้มีรายการเวชภัณฑ์ <b>' + lowStockItems.length + '</b> รายการ ที่ถึงจุดต้องสั่งเติม:</div>' +
+                  '<div style="text-align:left; max-height:40vh; overflow-y:auto; border:2px solid #e2e8f0; border-radius:12px;">' + 
+                  itemListHtml + 
+                  '</div>',
+            showCancelButton: true,
+            confirmButtonColor: '#10b981', 
+            cancelButtonColor: '#94a3b8',  
+            confirmButtonText: '<i class="fa-solid fa-boxes-packing"></i> เติมสต็อกตอนนี้',
+            cancelButtonText: 'ไว้ทีหลัง (รับทราบ)',
+            reverseButtons: true, 
+            width: '90%',           
+            backdrop: 'rgba(0,0,0,0.6)',
+            allowOutsideClick: false
+        }).then((result) => {
+            // 5. พอพยาบาลกดรับทราบ ให้เอา ID ยาที่เพิ่งเตือนไป ยัดเข้าสมอง
+            // รอบหน้าถ้าสต็อกยังไม่เพิ่ม มันจะได้ไม่เด้งกวนใจพยาบาลซ้ำอีก
+            unalertedItems.forEach(function(item) {
+                window.alertedLowStockIds.push(item.id);
+            });
+            
+            if (result.isConfirmed) {
+                window.openBulkRestockModal();
+            }
+        });
+    }
+};
+
+// ==================== ระบบเติมสต็อกหลายรายการพร้อมกัน (Bulk Restock) ====================
+window.openBulkRestockModal = function() {
+    var lowStockItems = appData.inventory.filter(function(item) {
+        return item.stock <= item.reorder;
+    });
+
+    if (lowStockItems.length === 0) return;
+
+    var formHtml = lowStockItems.map(function(item) {
+        return '<div style="display:flex; justify-content:space-between; align-items:center; padding:12px 10px; border-bottom:1px solid #e2e8f0;">' +
+               '<div style="flex:1; text-align:left; line-height:1.4; padding-right:10px;">' +
+               '<div style="font-size:14px; font-weight:600; color:#334155; word-break:break-word;">' + escapeHtml(item.name) + '</div>' + 
+               '<div style="font-size:12px; color:#64748b; margin-top:2px;">(สต็อกเดิม: ' + item.stock + ' ' + escapeHtml(item.unit) + ')</div>' +
+               '</div>' +
+               '<div style="width:100px; flex-shrink:0;">' +
+               '<input type="number" id="bulk-restock-' + item.id + '" class="swal2-input" placeholder="+ จำนวน" min="1" style="width:100%; height:40px; margin:0; padding:5px 10px; font-size:14px; text-align:center;">' +
+               '</div></div>';
+    }).join('');
+
+    Swal.fire({
+        title: '<span style="font-size:18px;"><i class="fa-solid fa-boxes-packing" style="color:#10b981;"></i> รับเข้าเวชภัณฑ์รวดเดียว</span>',
+        html: '<div style="text-align:left; font-size:13px; color:#ef4444; margin-bottom:10px;">*ระบุจำนวนรับเข้าใหม่ (ถ้าชิ้นไหนยังไม่พร้อมเติม ให้เว้นว่างไว้)</div>' + 
+              '<div style="max-height:50vh; overflow-y:auto; border:2px solid #e2e8f0; border-radius:12px; padding:0 5px;">' + formHtml + '</div>',
+        showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> บันทึกรับเข้า',
+        cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#5e3db5',
+        cancelButtonColor: '#94a3b8',
+        width: '90%',
+        preConfirm: () => {
+            var updates = [];
+            lowStockItems.forEach(function(item) {
+                var inputEl = document.getElementById('bulk-restock-' + item.id);
+                if (inputEl && inputEl.value) {
+                    var qty = parseInt(inputEl.value);
+                    if (qty > 0) {
+                        updates.push({ id: item.id, name: item.name, addQty: qty, unit: item.unit });
+                    }
+                }
+            });
+            if (updates.length === 0) {
+                Swal.showValidationMessage('กรุณาระบุจำนวนเวชภัณฑ์อย่างน้อย 1 รายการ');
+                return false;
+            }
+            return updates;
+        }
+    }).then(async (result) => {
+        if (result.isConfirmed) {
+            var updates = result.value;
+            Swal.fire({ title: 'กำลังอัปเดตสต็อก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            try {
+                await Promise.all(updates.map(function(u) {
+                    return restockMedicineDoc(u.id, u.addQty);
+                }));
+                
+                var summaryHtml = updates.map(function(u) { 
+                    return '<div style="padding:6px 0; border-bottom:1px dashed #e2e8f0; display:flex; justify-content:space-between;">' +
+                           '<span style="color:#334155; text-align:left; font-size:13.5px;">' + escapeHtml(u.name) + '</span>' +
+                           '<span style="color:#10b981; font-weight:700; flex-shrink:0; margin-left:10px;">+' + u.addQty + ' ' + escapeHtml(u.unit) + '</span></div>'; 
+                }).join('');
+                
+                Swal.fire({
+                    icon: 'success',
+                    title: 'เติมสต็อกสำเร็จ!',
+                    html: '<div style="max-height:200px; overflow-y:auto; border:1px solid #e2e8f0; padding:10px; border-radius:8px;">' + summaryHtml + '</div>',
+                    confirmButtonColor: '#10b981'
+                });
+                
+            } catch (err) {
+                Swal.fire('เกิดข้อผิดพลาด', err.message, 'error');
+            }
+        }
+    });
+};
+
+// ==================== ระบบ Auto-Refresh บังคับอัปเดตโค้ดใหม่ ====================
+// ตัวแปรเก็บเลขเวอร์ชันปัจจุบัน (ถ้า Deploy โค้ดใหม่ ให้มาเปลี่ยนเลขนี้ด้วย)
+var APP_VERSION = "4"; 
+
+window.checkNewVersion = function() {
+    // แอบไปโหลดไฟล์ version.json มาดู (ใส่ ?t=เวลา เพื่อป้องกัน Cache)
+    fetch('version.json?t=' + new Date().getTime())
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            // ถ้าเลขเวอร์ชันบนเซิร์ฟเวอร์ ไม่ตรงกับในเครื่องพยาบาล = มีโค้ดใหม่!
+            if (data.version && data.version !== APP_VERSION) {
+                console.log("พบการอัปเดตระบบใหม่! กำลังรีเฟรชหน้าจอ...");
+                
+                // โชว์ข้อความให้พยาบาลรู้ตัวนิดนึง ก่อนบังคับรีเฟรช
+                Swal.fire({
+                    icon: 'info',
+                    title: 'กำลังอัปเดตระบบ',
+                    text: 'มีการอัปเดตฟีเจอร์ใหม่ ระบบจะทำการรีเฟรชหน้าจออัตโนมัติครับ',
+                    showConfirmButton: false,
+                    timer: 2000,
+                    allowOutsideClick: false
+                }).then(() => {
+                    // คำสั่งบังคับรีเฟรชหน้าจอ (ล้าง Cache เก่าทิ้ง)
+                    window.location.reload(true);
+                });
+            }
+        })
+        .catch(function(e) { console.log("ไม่สามารถเช็คอัปเดตได้:", e); });
+};
+
+// เรดาร์ทำงานแบบที่ 1: เช็คทุกๆ 30 นาที (เผื่อเปิดจอคอมพิวเตอร์ทิ้งไว้ไม่ได้ปิด)
+setInterval(window.checkNewVersion, 30 * 60 * 1000);
+
+// เรดาร์ทำงานแบบที่ 2: เช็คทันทีที่ "หยิบมือถือขึ้นมา/เปิดหน้าเว็บกลับมาดู" (Visibility Change)
+document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') {
+        window.checkNewVersion();
     }
 });
 
