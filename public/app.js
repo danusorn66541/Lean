@@ -327,32 +327,197 @@ function renderApp() {
 }
 
 async function renderDashboard(container) {
-    // 1. วาดหน้าจอไปก่อน โดยใส่ไอคอนหมุนๆ (Loading) ไว้ตรงตัวเลขบันทึกทั้งหมด
+    // 1. นับจำนวนผู้ป่วยจริง
+    var activePatientsCount = appData.patients.filter(function(p) {
+        return p.name && p.name !== '-' && p.name !== 'ว่าง';
+    }).length;
+
+    // 2. วาดโครงสร้าง HTML หน้า Dashboard (เพิ่ม Layer 3 กราฟ + ฟีด)
     container.innerHTML =
         '<div class="page-container"><div class="page-header"><div>' +
         '<h1><i class="fa-solid fa-house"></i> แดชบอร์ด</h1></div></div>' + 
-        '<div class="page-content"><div class="dashboard-grid"><div class="dashboard-right" style="grid-column:1/-1">' +
-        '<div class="stats-container">' +
-        '<div class="stat-card"><div class="stat-icon"><i class="fa-solid fa-user-injured"></i></div><div class="stat-number">' + appData.patients.length + '</div><div class="stat-label">ผู้ป่วยทั้งหมด</div></div>' +
-        '<div class="stat-card"><div class="stat-icon"><i class="fa-solid fa-pills"></i></div><div class="stat-number">' + appData.inventory.length + '</div><div class="stat-label">รายการยา</div></div>' +
-        '<div class="stat-card"><div class="stat-icon"><i class="fa-solid fa-clipboard-list"></i></div><div class="stat-number" id="dashRecordCount"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px; color:#c4b5fd;"></i></div><div class="stat-label">บันทึกทั้งหมด</div></div>' +
-        '</div><div class="quick-actions">' +
-        '<button class="quick-action-card" onclick="window.goToPage(\'scan\')"><i class="fa-solid fa-qrcode"></i><span>สแกนเตียงผู้ป่วย</span></button>' +
-        '<button class="quick-action-card" onclick="window.goToPage(\'patients\')"><i class="fa-solid fa-user-injured"></i><span>จัดการผู้ป่วย</span></button>' +
-        '<button class="quick-action-card" onclick="window.goToPage(\'medicines\')"><i class="fa-solid fa-pills"></i><span>จัดการเวชภัณฑ์</span></button>' +
-        '<button class="quick-action-card" onclick="window.goToPage(\'inventory\')"><i class="fa-solid fa-boxes-stacked"></i><span>ยอดคงคลัง</span></button>' +
-        '<button class="quick-action-card" onclick="window.goToPage(\'records\')"><i class="fa-solid fa-clipboard-list"></i><span>บันทึกการใช้</span></button>' +
-        '</div></div></div></div></div>';
+        
+        '<div class="dashboard-container">' +
+        
+        // --- Layer 1: การ์ดสรุปยอด ---
+        '<div class="summary-cards">' +
+        '<div class="summary-card"><i class="fa-solid fa-user-injured card-icon"></i><div class="card-info"><h3 style="margin:0;">' + activePatientsCount + '</h3><p style="margin:0;">ผู้ป่วยจริง (เตียงไม่ว่าง)</p></div></div>' +
+        '<div class="summary-card"><i class="fa-solid fa-pills card-icon"></i><div class="card-info"><h3 style="margin:0;">' + appData.inventory.length + '</h3><p style="margin:0;">รายการยา</p></div></div>' +
+        '<div class="summary-card"><i class="fa-solid fa-clipboard-list card-icon"></i><div class="card-info"><h3 id="dashRecordCount" style="margin:0;"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px;"></i></h3><p style="margin:0;">บันทึกทั้งหมด</p></div></div>' +
+        '<div class="summary-card" style="background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%);"><i class="fa-solid fa-calendar-check card-icon"></i><div class="card-info"><h3 id="dashTodayCount" style="margin:0;"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px;"></i></h3><p style="margin:0;">รายการวันนี้</p></div></div>' +
+        '</div>' +
+        
+        // --- Layer 2: ปุ่มแคปซูล ---
+        '<div class="quick-actions">' +
+        '<button class="btn-quick" onclick="window.goToPage(\'scan\')"><i class="fa-solid fa-qrcode"></i> สแกนเตียง</button>' +
+        '<button class="btn-quick" onclick="window.goToPage(\'patients\')"><i class="fa-solid fa-user-injured"></i> จัดการผู้ป่วย</button>' +
+        '<button class="btn-quick" onclick="window.goToPage(\'medicines\')"><i class="fa-solid fa-pills"></i> จัดการเวชภัณฑ์</button>' +
+        '<button class="btn-quick" onclick="window.goToPage(\'inventory\')"><i class="fa-solid fa-boxes-stacked"></i> ยอดคงคลัง</button>' +
+        '<button class="btn-quick" onclick="window.goToPage(\'records\')"><i class="fa-solid fa-clipboard-list"></i> บันทึกการใช้</button>' +
+        '</div>' +
+        
+        // --- Layer 3: กราฟ (ซ้าย) & รายการล่าสุด (ขวา) ---
+        '<div class="dashboard-analytics">' +
+        '  <div class="glass-card">' +
+        '    <div class="section-header"><h4><i class="fa-solid fa-chart-simple"></i> ยอดจ่ายเวชภัณฑ์ (วันนี้)</h4></div>' +
+        '    <div class="chart-container" style="position: relative; height:320px;"><canvas id="todayChart"></canvas></div>' +
+        '  </div>' +
+        '  <div class="glass-card">' +
+        '    <div class="section-header"><h4><i class="fa-solid fa-clock-rotate-left"></i> บันทึกล่าสุด</h4></div>' +
+        '    <ul class="activity-feed" id="recentFeedList">' +
+        '       <div style="text-align:center;padding:40px;color:#94a3b8;"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px;"></i></div>' +
+        '    </ul>' +
+        '  </div>' +
+        '</div>' +
 
-    // 2. แอบวิ่งไปถาม Firebase หลังบ้านว่ามียอดเท่าไหร่ แล้วเอามาอัปเดตแทนไอคอนหมุนๆ
+        '</div></div>';
+
+    // 3. เริ่มโหลดข้อมูลใส่แต่ละส่วน
     try {
+        // อัปเดตตัวเลขบันทึกทั้งหมด
         var totalCount = await getTotalRecordsCount();
         var countEl = document.getElementById('dashRecordCount');
-        if (countEl) countEl.textContent = totalCount;
+        if (countEl) countEl.innerHTML = totalCount;
+
+        // ดึงประวัติทั้งหมดมาเพื่อสร้างกราฟและฟีด
+        var allRecords = await getAllRecordsOnceFromFirestore();
+        
+        // --- ส่วนที่ 3.1: จัดการรายการล่าสุด (ฟีดขวามือ) ---
+        var recentRecords = allRecords.slice(0, 5); // เอาแค่ 5 อันดับแรกล่าสุด
+        var feedHtml = '';
+        if (recentRecords.length === 0) {
+            feedHtml = '<li style="text-align:center;color:#94a3b8;padding:20px;">ยังไม่มีการบันทึกข้อมูล</li>';
+        } else {
+            feedHtml = recentRecords.map(function(r) {
+                var isVoid = r.voided === true;
+                var timeStr = formatTimestamp(r.createdAt);
+                // ดึงชื่อยาตัวแรกมาโชว์ (ถ้าบิลนี้มีหลายยา ให้บวกเลขเพิ่ม)
+                var firstMed = (r.items && r.items.length > 0) ? r.items[0].medicineName : (r.medicineName || 'ไม่ระบุ');
+                var moreMeds = (r.items && r.items.length > 1) ? ' (+อีก ' + (r.items.length - 1) + ')' : '';
+                
+                var iconBg = isVoid ? 'background-color:#ef4444;' : 'background-color:#5e3db5;';
+                var iconClass = isVoid ? 'fa-ban' : 'fa-pills';
+                var textStyle = isVoid ? 'text-decoration:line-through;color:#94a3b8;' : '';
+
+                return '<li class="feed-item">' +
+                       '<div class="feed-icon" style="' + iconBg + '"><i class="fa-solid ' + iconClass + '"></i></div>' +
+                       '<div class="feed-detail">' +
+                       '<p class="feed-text" style="' + textStyle + '">จ่าย ' + escapeHtml(firstMed) + moreMeds + ' ให้คุณ ' + escapeHtml(r.patientName) + '</p>' +
+                       '<p class="feed-time">' + timeStr + ' | โดย ' + escapeHtml(r.performedByName) + '</p>' +
+                       '</div></li>';
+            }).join('');
+        }
+        document.getElementById('recentFeedList').innerHTML = feedHtml;
+
+        // --- ส่วนที่ 3.2: จัดการข้อมูลกราฟ (ซ้ายมือ) กรองเฉพาะวันนี้ ---
+        var today = new Date();
+        today.setHours(0,0,0,0);
+
+        var todayRecords = allRecords.filter(function(r) {
+            if(r.voided) return false;
+            var recDate = r.shiftDate ? new Date(r.shiftDate) : (r.createdAt.toDate ? r.createdAt.toDate() : new Date(r.createdAt));
+            recDate.setHours(0,0,0,0);
+            return recDate.getTime() === today.getTime();
+        });
+
+        // 🔥 [เพิ่มใหม่] เอาจำนวนบิลของวันนี้ไปยัดใส่การ์ดใบที่ 4
+        var dashTodayCountEl = document.getElementById('dashTodayCount');
+        if (dashTodayCountEl) {
+            dashTodayCountEl.innerHTML = todayRecords.length;
+        }
+
+        // นำยาของวันนี้มาบวกรวมกันว่าแต่ละตัวถูกจ่ายไปกี่ชิ้น
+        var medCounts = {};
+        todayRecords.forEach(function(r) {
+            var items = r.items || [{medicineName: r.medicineName, quantity: r.quantity}];
+            items.forEach(function(item) {
+                var mName = item.medicineName;
+                medCounts[mName] = (medCounts[mName] || 0) + parseInt(item.quantity);
+            });
+        });
+
+        // --- 1. แปลงข้อมูลเป็น Array เพื่อนำมาเรียงลำดับ ---
+        var sortedMeds = [];
+        for (var mName in medCounts) {
+            sortedMeds.push({ 
+                fullName: mName, // เก็บชื่อเต็มไว้โชว์ตอนเอาเมาส์ชี้
+                count: medCounts[mName] 
+            });
+        }
+
+        // --- 2. เรียงลำดับยอดจ่ายจาก "มากไปน้อย" ---
+        sortedMeds.sort(function(a, b) { return b.count - a.count; });
+
+        // --- 3. เอามาโชว์แค่ "Top 7" อันดับแรก กราฟจะได้ไม่แน่น ---
+        var topMeds = sortedMeds.slice(0, 7);
+
+        // --- 4. หั่นชื่อยาแกน X ให้สั้นลง (ถ้าเกิน 20 ตัวอักษรให้ใส่ ...) ---
+        var labels = topMeds.map(function(item) {
+            return item.fullName.length > 20 ? item.fullName.substring(0, 20) + '...' : item.fullName;
+        });
+        var dataValues = topMeds.map(function(item) { return item.count; });
+        var fullNames = topMeds.map(function(item) { return item.fullName; });
+
+        if (labels.length === 0) {
+            var chartCanvas = document.getElementById('todayChart');
+            if (chartCanvas) {
+                chartCanvas.parentElement.innerHTML = '<div style="text-align:center;padding:100px 0;color:#94a3b8;"><i class="fa-solid fa-chart-pie" style="font-size:32px;margin-bottom:10px;opacity:0.5;"></i><br>ยังไม่มีการเบิกจ่ายเวชภัณฑ์ในวันนี้</div>';
+            }
+        } else {
+            var chartCanvas = document.getElementById('todayChart');
+            if (!chartCanvas) return; // 🔥 ถ้าผู้ใช้กดเปลี่ยนหน้าหนีไปแล้ว ให้หยุดการทำงานทันที ป้องกัน Error!
+            
+            var ctx = chartCanvas.getContext('2d');
+            
+            if (window.dashboardChartInstance) {
+                window.dashboardChartInstance.destroy();
+            }
+
+            window.dashboardChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'จำนวนที่จ่ายไป (ชิ้น)',
+                        data: dataValues,
+                        backgroundColor: 'rgba(94, 61, 181, 0.75)', 
+                        borderColor: 'rgba(94, 61, 181, 1)',
+                        borderWidth: 1,
+                        borderRadius: 6 
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    return fullNames[tooltipItems[0].dataIndex];
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { 
+                            ticks: { 
+                                maxRotation: 45, 
+                                minRotation: 0,
+                                font: { family: 'Kanit', size: 11 } 
+                            } 
+                        },
+                        y: { 
+                            beginAtZero: true, 
+                            ticks: { precision: 0 } 
+                        }
+                    }
+                }
+            });
+        }
+
     } catch (e) {
-        console.error("ดึงยอดบันทึกรวมไม่สำเร็จ:", e);
-        var countEl = document.getElementById('dashRecordCount');
-        if (countEl) countEl.textContent = 'Error';
+        console.error("Dashboard Render Error:", e);
     }
 }
 
@@ -400,7 +565,6 @@ function renderPatients(container) {
             '<div style="display:flex; gap:8px; margin-top:10px;">' + actionButtons + '</div></div>';
     }).join('');
 
-    // 🔥 สร้าง UI ช่องค้นหา + Dropdown กรองสถานะเตียง (กาง 100% จัดเรียงแบบ 2 ส่วน)
     var searchHtml = 
         '<div style="display:flex; gap:8px; width:100%;">' +
         '<select id="patientStatusFilter" onchange="window.filterPatientCards()" style="flex-shrink:0; padding:10px 12px; border-radius:12px; border:2px solid #cbd5e1; font-family:inherit; font-size:13px; outline:none; cursor:pointer; background:#f8fafc; color:#475569; font-weight:600;">' +
@@ -416,7 +580,6 @@ function renderPatients(container) {
 
     container.innerHTML =
         '<div class="page-container">' +
-        // 🔥 ปรับ Layout เป็นแบบแบ่งชั้น (Title อยู่บน, Search อยู่ล่าง)
         '<div class="page-header" style="display:flex; flex-direction:column; gap:16px; align-items:stretch; margin-bottom:20px;">' +
         '  <div style="display:flex; justify-content:space-between; align-items:center;">' +
         '    <h1 style="margin:0;"><i class="fa-solid fa-hospital-user"></i> ผังเตียงผู้ป่วย</h1>' +
@@ -675,12 +838,16 @@ function renderScanPage(container) {
         '<h2 style="margin-top:0;margin-bottom:16px;color:#1e293b;border-bottom:2px solid #f1f5f9;padding-bottom:10px"><i class="fa-solid fa-clipboard-check" style="color:#10b981"></i> ยืนยันการจ่ายเวชภัณฑ์</h2>' +
         '<div class="form-group"><label style="font-weight:600">ผู้ป่วยที่ระบุ (เตียง)</label><input type="text" id="recordPatientDisplay" style="background:#f8fafc;font-weight:700;color:#5e3db5" readonly></div>' +
         
-        '<div class="form-group"><label style="font-weight:600"><i class="fa-solid fa-clock"></i> เวรปฏิบัติงาน</label>' +
-        '<select id="recordShiftDisplay" onchange="window.lastSelectedShift = this.value" style="width:100%;padding:10px;border-radius:10px;border:2px solid #cbd5e1;font-weight:600;color:#334155;font-family:inherit;">' +
+        '<div style="display:flex; gap:12px; margin-bottom:12px;">' +
+        '<div class="form-group" style="flex:1; margin:0;"><label style="font-weight:600"><i class="fa-regular fa-calendar"></i> วันที่ของเวร</label>' +
+        '<input type="date" id="recordShiftDate" style="width:100%;padding:10px;border-radius:10px;border:2px solid #cbd5e1;font-weight:600;color:#334155;font-family:inherit;"></div>' +
+        '<div class="form-group" style="flex:1; margin:0;"><label style="font-weight:600"><i class="fa-solid fa-clock"></i> เวรปฏิบัติงาน</label>' +
+        '<select id="recordShiftDisplay" onchange="window.lastSelectedShift = this.value; window.autoSetShiftDate();" style="width:100%;padding:10px;border-radius:10px;border:2px solid #cbd5e1;font-weight:600;color:#334155;font-family:inherit;">' +
         '<option value="เช้า">เวรเช้า</option>' +
         '<option value="บ่าย">เวรบ่าย</option>' +
         '<option value="ดึก">เวรดึก</option>' +
         '</select></div>' +
+        '</div>' +
         
         '<div style="margin-top:15px;margin-bottom:8px;font-weight:700;color:#334155;font-size:0.95rem;display:flex;justify-content:space-between;align-items:center">' +
         '<span>รายการเวชภัณฑ์ที่จ่าย</span>' +
@@ -891,31 +1058,127 @@ function filterMedicineOptions(inputEl, rowId) {
     if (firstMatch && filterText.length > 1) selectEl.value = firstMatch;
 }
 
+// ==================== AI / GOOGLE IMAGE SEARCH SYSTEM ====================
+// ==================== AUTO MEDICAL IMAGE SEARCH (NO API KEY REQUIRED) ====================
+var medImageCache = JSON.parse(localStorage.getItem('medImageCache') || '{}');
+
+async function fetchMedImageFromAI(rawName) {
+    if (!rawName) return null;
+    if (medImageCache[rawName]) return medImageCache[rawName];
+
+    // 1. คลีนชื่ออุปกรณ์ ตัดภาษาไทยและสัญลักษณ์ออก เอาเฉพาะคีย์เวิร์ดภาษาอังกฤษ
+    var cleanQuery = rawName.replace(/\[.*?\]|\(.*?\)|[ก-๙]/g, '').trim();
+
+    try {
+        // 2. ดึงรูปภาพอุปกรณ์ทางการแพทย์จาก Wikimedia Commons API (เปิดเสรี ไม่ต้องใช้ API Key)
+        var apiUrl = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=' + 
+                     encodeURIComponent(cleanQuery + ' medical equipment') + 
+                     '&gsrlimit=1&prop=pageimages&piprop=original&format=json&origin=*';
+
+        var res = await fetch(apiUrl);
+        var data = await res.json();
+
+        if (data.query && data.query.pages) {
+            var pages = data.query.pages;
+            var firstKey = Object.keys(pages)[0];
+            if (pages[firstKey].original && pages[firstKey].original.source) {
+                var imgUrl = pages[firstKey].original.source;
+                medImageCache[rawName] = imgUrl;
+                localStorage.setItem('medImageCache', JSON.stringify(medImageCache));
+                return imgUrl;
+            }
+        }
+    } catch (err) {
+        console.warn('Image Search Error:', err);
+    }
+
+    // 3. กรณีดึงรูปเฉพาะไม่เจอ ระบบจะจับคู่รูปภาพอุปกรณ์การแพทย์คุณภาพสูงให้อัตโนมัติ
+    var upper = rawName.toUpperCase();
+    var fallbackUrl = 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=300&q=80'; // รูปเวชภัณฑ์ทั่วไป
+    
+    if (upper.includes('MASK') || upper.includes('หน้ากาก') || upper.includes('AEROSOL')) {
+        fallbackUrl = 'https://images.unsplash.com/photo-1584634731339-252c581abfc5?w=300&q=80'; // หน้ากากอนามัย/พ่นยา
+    } else if (upper.includes('BANDAGE') || upper.includes('GAUZE') || upper.includes('SLING') || upper.includes('ผ้า')) {
+        fallbackUrl = 'https://images.unsplash.com/photo-1603398938378-e54eab446dde?w=300&q=80'; // ผ้าพันแผล/สลิง
+    } else if (upper.includes('SYRINGE') || upper.includes('NEEDLE') || upper.includes('เข็ม')) {
+        fallbackUrl = 'https://images.unsplash.com/photo-1579154204601-01588f351e67?w=300&q=80'; // เข็มฉีดยา
+    } else if (upper.includes('COCK') || upper.includes('3 WAY') || upper.includes('SET') || upper.includes('VALVE') || upper.includes('LUER')) {
+        fallbackUrl = 'https://images.unsplash.com/photo-1516549655169-df83a0774514?w=300&q=80'; // อุปกรณ์สายน้ำเกลือ/วาล์ว
+    }
+
+    medImageCache[rawName] = fallbackUrl;
+    localStorage.setItem('medImageCache', JSON.stringify(medImageCache));
+    return fallbackUrl;
+}
+
 function renderInventory(container) {
+    // 💡 ระบบเลือกไอคอนและสีพาสเทลแยกตามหมวดหมู่เวชภัณฑ์ (แม่นยำ 100%)
+    function getCategoryIconConfig(name) {
+        if (!name) return { icon: 'fa-box-tissue', color: '#5e3db5', bg: '#f3e8ff' };
+        var n = name.toUpperCase();
+
+        // 1. หมวดหน้ากาก / พ่นยา / ออกซิเจน
+        if (n.includes('MASK') || n.includes('หน้ากาก') || n.includes('AEROSOL')) {
+            return { icon: 'fa-head-side-mask', color: '#0284c7', bg: '#e0f2fe' };
+        }
+        // 2. หมวดผ้าพันแผล / ผ้าก๊อซ / ผ้าคล้องแขน / พยุง
+        if (n.includes('BANDAGE') || n.includes('GAUZE') || n.includes('CONFORM') || n.includes('ELASTIC') || n.includes('SLING') || n.includes('ผ้า')) {
+            return { icon: 'fa-bandage', color: '#ea580c', bg: '#ffedd5' };
+        }
+        // 3. หมวดเข็ม / กระบอกฉีดยา
+        if (n.includes('SYRINGE') || n.includes('NEEDLE') || n.includes('เข็ม') || n.includes('ฉีดยา')) {
+            return { icon: 'fa-syringe', color: '#059669', bg: '#d1fae5' };
+        }
+        // 4. หมวดข้อต่อ / วาล์ว / 3-Way / สายน้ำเกลือ
+        if (n.includes('COCK') || n.includes('3 WAY') || n.includes('LUER') || n.includes('VALVE') || n.includes('SET') || n.includes('TUBE') || n.includes('INFUSION') || n.includes('CATHETER')) {
+            return { icon: 'fa-diagram-project', color: '#7c3aed', bg: '#ede9fe' };
+        }
+        // 5. หมวดถุงมือ
+        if (n.includes('GLOVE') || n.includes('ถุงมือ')) {
+            return { icon: 'fa-hand-holding-medical', color: '#db2777', bg: '#fce7f3' };
+        }
+
+        // หมวดยา/เวชภัณฑ์ทั่วไป
+        return { icon: 'fa-box-tissue', color: '#5e3db5', bg: '#f3e8ff' };
+    }
+
     var items = appData.inventory.map(function(item) {
         var isLow = item.stock <= item.reorder;
-        
+        var iconConfig = getCategoryIconConfig(item.name);
+
+        // ถ้ามีรูปภาพจริงที่แอดมินแนบไว้ในระบบ (item.imageUrl) จะแสดงรูปจริง
+        // ถ้าไม่มี จะแสดงไอคอนพาสเทลตามหมวดหมู่
+        var imageContent = item.imageUrl 
+            ? '<img src="' + item.imageUrl + '" alt="' + escapeHtml(item.name) + '" style="max-height:85px; max-width:100%; object-fit:contain; border-radius:8px;">'
+            : '<div style="width:64px; height:64px; border-radius:50%; background:' + iconConfig.bg + '; display:flex; align-items:center; justify-content:center;">' +
+              '<i class="fa-solid ' + iconConfig.icon + '" style="font-size:30px; color:' + iconConfig.color + ';"></i>' +
+              '</div>';
+
         return '<div class="inventory-card" style="background:#fff; padding:18px; border-radius:16px; box-shadow:0 4px 12px rgba(0,0,0,0.03); border:1px solid ' + (isLow ? '#fca5a5' : '#e2e8f0') + '; display:flex; flex-direction:column; justify-content:space-between">' +
             '<div>' +
-            '<div class="inventory-name" style="font-weight:700; font-size:1.15rem; color:#1e293b; margin-bottom:12px">' + escapeHtml(item.name) + '</div>' +
+            
+            '<div style="width:100%; height:110px; background:#f8fafc; border-radius:12px; margin-bottom:12px; display:flex; align-items:center; justify-content:center; border:1px solid #f1f5f9; padding:8px; box-sizing:border-box;">' +
+            imageContent +
+            '</div>' +
+
+            '<div class="inventory-name" style="font-weight:700; font-size:0.95rem; color:#1e293b; margin-bottom:12px; min-height:42px; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">' + escapeHtml(item.name) + '</div>' +
             '<div class="inventory-row" style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:14px; color:#475569"><span>จำนวนคงเหลือ:</span><span style="font-weight:800; color:' + (isLow ? '#ef4444' : '#10b981') + '; font-size:1.15rem">' + item.stock + ' <span style="font-size:13px; font-weight:500; color:#64748b">' + escapeHtml(item.unit) + '</span></span></div>' +
             '<div class="inventory-row" style="display:flex; justify-content:space-between; margin-bottom:12px; font-size:13px; color:#94a3b8"><span>เตือนเมื่อเหลือน้อยกว่า:</span><span>' + item.reorder + '</span></div>' +
             
-            // ป้ายเตือนสีแดงถ้าของใกล้หมด
             (isLow ? '<div style="color:#ef4444; font-size:12px; font-weight:700; background:#fef2f2; padding:8px 10px; border-radius:8px; margin-bottom:15px; text-align:center"><i class="fa-solid fa-triangle-exclamation"></i> สินค้าใกล้หมด! ต้องสั่งเพิ่ม</div>' : '') +
             '</div>' +
             
-            // ปุ่มเติมสต็อก
             '<button type="button" onclick="window.promptRestock(\'' + item.id + '\', \'' + escapeHtml(item.name).replace(/'/g, "\\'") + '\', \'' + escapeHtml(item.unit).replace(/'/g, "\\'") + '\')" style="width:100%; padding:12px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:10px; color:#0284c7; font-weight:700; font-size:13.5px; cursor:pointer; transition:background 0.2s"><i class="fa-solid fa-boxes-packing"></i> เติมสต็อก</button>' +
             '</div>';
     }).join('');
 
     container.innerHTML =
         '<div class="page-container"><div class="page-header"><h1><i class="fa-solid fa-boxes-stacked"></i> ยอดคงคลัง</h1></div>' +
-        '<div class="page-content"><div class="list-section"><div class="inventory-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:16px">' +
+        '<div class="page-content"><div class="list-section"><div class="inventory-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:16px">' +
         (appData.inventory.length === 0 ? '<p class="empty" style="grid-column:1/-1; text-align:center; padding:40px 0; color:#94a3b8"><i class="fa-regular fa-folder-open" style="font-size:32px; margin-bottom:10px"></i><br>ไม่มีรายการเวชภัณฑ์</p>' : items) +
         '</div></div></div></div>';
 }
+
 // ฟังก์ชันเรียก Pop-up รับเข้าสต็อก
 function promptRestock(id, name, unit) {
     Swal.fire({
@@ -1026,12 +1289,17 @@ function viewRecordDetails(recordId) {
                       '</div>';
     }
 
-    // 🔥 โลจิกแสดงปุ่มลบ เฉพาะแอดมิน และเฉพาะบิลที่ยังไม่เคยโดนยกเลิก
     var voidActionHtml = '';
     if (r.voided) {
         voidActionHtml = '<div style="margin-top:15px;padding:12px;background:#fef2f2;color:#ef4444;border-radius:12px;font-weight:600;text-align:center;font-size:13px;"><i class="fa-solid fa-circle-xmark"></i> บิลนี้ถูกยกเลิกแล้วโดย ' + escapeHtml(r.voidedBy || 'ผู้ดูแลระบบ') + '</div>';
     } else if (currentUser && currentUser.admin === true) {
         voidActionHtml = '<button type="button" onclick="window.handleVoidRecord(\'' + r.id + '\')" style="width:100%;margin-top:20px;padding:12px;background:#fee2e2;color:#dc2626;border:2px dashed #fca5a5;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer;"><i class="fa-solid fa-arrow-rotate-left"></i> ยกเลิกบิลและคืนสต็อก</button>';
+    }
+
+    // 🔥 [เพิ่มใหม่] โลจิกแสดง "วันที่ลงบัญชี (รอบเวร)" ให้เห็นชัดๆ
+    var shiftInfoHtml = '';
+    if (r.shiftDate) {
+        shiftInfoHtml = '<div style="margin-top:8px"><strong>วันที่ลงบัญชี:</strong> <span style="color:#f97316;font-weight:700;">' + r.shiftDate + ' (เวร' + escapeHtml(r.shift || '') + ')</span></div>';
     }
 
     var modalHtml = 
@@ -1042,7 +1310,8 @@ function viewRecordDetails(recordId) {
         '</div>' +
         '<div style="padding:16px 24px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:13.5px;color:#475569">' +
         '<div style="margin-bottom:8px"><strong>ผู้ป่วย:</strong> <span style="color:' + (r.voided ? '#64748b' : '#5e3db5') + ';font-weight:700">' + escapeHtml(r.patientName) + '</span></div>' +
-        '<div><strong>เวลาที่บันทึก:</strong> ' + formatTimestamp(r.createdAt) + '</div>' +
+        '<div><strong>เวลาที่กดบันทึกจริง:</strong> ' + formatTimestamp(r.createdAt) + '</div>' +
+        shiftInfoHtml + // 👈 ยัดข้อมูลรอบเวรที่คำนวณมาใส่ตรงนี้
         '</div>' +
         '<div style="padding:10px 24px 24px 24px;max-height:50vh;overflow-y:auto">' + medListHtml + voidActionHtml + '</div>' +
         '</div>' +
@@ -1224,9 +1493,16 @@ async function exportRecordsWithFilter() {
         var filteredRecords = allRecords.filter(function(r) {
             if (r.voided) return false; 
             
-            var recordDate = typeof r.createdAt.toDate === 'function' ? r.createdAt.toDate() : new Date(r.createdAt);
-            if (startDate && recordDate < startDate) return false;
-            if (endDate && recordDate > endDate) return false;
+            // ใช้วันที่ของเวร (shiftDate) เป็นหลักในการคำนวณช่วงเวลาส่งออก
+            var recordDateObj;
+            if (r.shiftDate) {
+                recordDateObj = new Date(r.shiftDate + 'T12:00:00'); // ใส่ T12 ไว้กันปัญหา Timezone เพี้ยน
+            } else {
+                recordDateObj = typeof r.createdAt.toDate === 'function' ? r.createdAt.toDate() : new Date(r.createdAt);
+            }
+            
+            if (startDate && recordDateObj < startDate) return false;
+            if (endDate && recordDateObj > endDate) return false;
             if (selectedShift && r.shift !== selectedShift) return false;
             if (selectedNurse && r.performedByName !== selectedNurse) return false;
             return true;
@@ -1987,11 +2263,10 @@ function searchByCode(codeParam) {
         
         var shiftSelect = document.getElementById('recordShiftDisplay');
         if (shiftSelect) {
-            // ถ้าเคยเลือกเวรไปแล้ว ให้จำค่าเดิมไว้ ไม่ต้องเปลี่ยนตามเวลาปัจจุบัน
+            // จัดการเวร (เช้า/บ่าย/ดึก)
             if (window.lastSelectedShift) {
                 shiftSelect.value = window.lastSelectedShift;
             } else {
-                // ถ้าเพิ่งเปิดเข้ามาครั้งแรก ค่อยจับเวลาปัจจุบันเป็นค่าเริ่มต้น
                 var currentHour = new Date().getHours();
                 if (currentHour >= 8 && currentHour < 16) {
                     shiftSelect.value = 'เช้า';
@@ -2002,6 +2277,8 @@ function searchByCode(codeParam) {
                 }
             }
         }
+
+        window.autoSetShiftDate();
         
         var mContainer = document.getElementById('multiMedicineContainer');
         if (mContainer) {
@@ -2069,9 +2346,12 @@ async function submitMultiRecords() {
         return; 
     }
 
-    // 🔥 [เพิ่มใหม่] อ่านค่า "เวร" ที่พยาบาลเลือกไว้บนหน้าฟอร์ม
+    // 🔥 อ่านค่า "เวร" และ "วันที่" ที่พยาบาลเลือกไว้บนหน้าฟอร์ม
     var shiftDisplayEl = document.getElementById('recordShiftDisplay');
     var selectedShift = shiftDisplayEl ? shiftDisplayEl.value : 'เช้า';
+    
+    var shiftDateEl = document.getElementById('recordShiftDate');
+    var selectedShiftDate = shiftDateEl ? shiftDateEl.value : new Date().toISOString().split('T')[0];
 
     try {
         await submitRecordDoc({
@@ -2079,7 +2359,8 @@ async function submitMultiRecords() {
             patientName: currentScannedPatient.name, 
             performedByUid: currentUser.uid, 
             performedByName: currentUser.name,
-            shift: selectedShift, // 🔥 [เพิ่มใหม่] พ่วงส่งค่าเวรลงฐานข้อมูลคลาวด์
+            shift: selectedShift, 
+            shiftDate: selectedShiftDate, // แนบวันที่ของเวรที่ถูกต้องส่งไปคลาวด์
             items: itemsToSubmit
         });
         
@@ -2745,7 +3026,7 @@ window.openBulkRestockModal = function() {
 
 // ==================== ระบบ Auto-Refresh บังคับอัปเดตโค้ดใหม่ ====================
 // ตัวแปรเก็บเลขเวอร์ชันปัจจุบัน (ถ้า Deploy โค้ดใหม่ ให้มาเปลี่ยนเลขนี้ด้วย)
-var APP_VERSION = "4"; 
+var APP_VERSION = "7"; 
 
 window.checkNewVersion = function() {
     // แอบไปโหลดไฟล์ version.json มาดู (ใส่ ?t=เวลา เพื่อป้องกัน Cache)
@@ -2782,6 +3063,32 @@ document.addEventListener('visibilitychange', function() {
         window.checkNewVersion();
     }
 });
+
+// ==================== SMART SHIFT DATE ====================
+// ฟังก์ชันฉลาดๆ สำหรับจัดการวันที่และเวรข้ามคืน
+window.autoSetShiftDate = function() {
+    var dateInput = document.getElementById("recordShiftDate");
+    var shiftSelect = document.getElementById("recordShiftDisplay");
+
+    if (!dateInput || !shiftSelect) return;
+
+    var now = new Date();
+    var currentHour = now.getHours(); // ดึงเวลาปัจจุบัน 0-23
+    var targetDate = new Date();
+
+    // 🌟 ถ้าดึกแล้ว (00:00 - 02:59 น.) และเลือก "เวรบ่าย" 
+    // ให้ถอยวันที่กลับไป 1 วัน (เมื่อวาน)
+    if (currentHour >= 0 && currentHour < 3 && shiftSelect.value === "บ่าย") {
+        targetDate.setDate(targetDate.getDate() - 1);
+    }
+
+    // จัดฟอร์แมต YYYY-MM-DD แล้วยัดใส่ช่องวันที่
+    var year = targetDate.getFullYear();
+    var month = String(targetDate.getMonth() + 1).padStart(2, '0');
+    var day = String(targetDate.getDate()).padStart(2, '0');
+    
+    dateInput.value = year + '-' + month + '-' + day;
+};
 
 // ผูกฟังก์ชัน Global ตัวเสริมเข้าสู่ Window Object
 window.addMedicineRow = addMedicineRow;
